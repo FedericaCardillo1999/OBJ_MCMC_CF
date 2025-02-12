@@ -38,13 +38,13 @@ size = prf_results[:, 2]
 angle_map = cortex.Vertex.empty(f'{subject}')
 
 masked_polar_angle = np.zeros(angle_map.nverts)
-masked_polar_angle[:] = 50
+masked_polar_angle[:] = 0
 masked_eccentricity = np.zeros(angle_map.nverts)
-masked_eccentricity[:] = 50
+masked_eccentricity[:] = 90
 masked_r2 = np.zeros(angle_map.nverts)
-masked_r2[:] = 0.05
+masked_r2[:] = 0
 masked_radius = np.zeros(angle_map.nverts)
-masked_radius[:] = 50
+masked_radius[:] = 0
 
 # Extract the actual measurements
 eccentricity = np.sqrt(prf_results[:, 0]**2 + prf_results[:, 1]**2)
