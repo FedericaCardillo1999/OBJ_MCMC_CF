@@ -52,14 +52,8 @@
 
 # %% [markdown]
 # NEXT STEP
-# 0. Heat map
-# 0a. Right hemisphere
-# 0b. Benson 
-# 0c. subject 44
-# 0d. remove ve <0.3>
-# 1. Iterative Fit implementation. 
-# 2. Right hemisphre preprocessing. 
-# 3. Generalization for the plots.
+# 1. Finer grid search on the sigma values.
+# 2. MCMC implementation.  
 
 # %%
 # Export the required libraries 
@@ -73,6 +67,8 @@ import numpy as np
 import scipy.optimize
 import matplotlib.pyplot as plt
 from numba import jit
+from scipy.optimize import minimize
+import itertools
 
 # %%
 class Vertex:
@@ -211,7 +207,6 @@ class TimeCourse:
             # Stores the time course in a dictionary using the vertex index as the key.
             tSeries[index] = time_course
 
-        # Print details about the tSeries dictionary
         return tSeries
 
     def z_score(self) -> dict:
@@ -220,7 +215,7 @@ class TimeCourse:
         # Computes the z-score for each time course
         for index, time_course in self.tSeries.items():
             # Subtracts the mean and divides by the standard deviation.
-            # z_scored_data[index] = (time_course - np.mean(time_course)) / np.std(time_course)
+            # z_scored_data[index] = (time_course - np.mean(time_course)) / np.std(time_course) 
             z_scored_data[index] = (time_course - np.nanmean(time_course)) / np.nanstd(time_course)
         return z_scored_data
 
@@ -252,101 +247,6 @@ class TimeCourse:
         plt.title(f"{title_prefix} Vertex {vertex_index} - Before and After Z-Scoring")
         plt.xlabel("Time Points")
         plt.ylabel("BOLD Signal")
-        plt.legend()
-        plt.grid()
-        if show:
-            plt.show()
-
-# %%
-# TO BE REMOVED 
-
-class TimeCourse_previous:
-    """ 
-    Loading, processing, and analyzing time course data for single or multiple vertices, with adjustments for RH index misalignment.
-    """
-
-    def __init__(self, time_course_file: str, vertices: list[Vertex], cutoff_volumes: int, hemisphere: str):
-        self.vertices = vertices  # List of Vertex objects
-        self.cutoff_volumes = cutoff_volumes
-        self.hemisphere = hemisphere  # 'lh' or 'rh' to differentiate hemispheres
-        self.data = np.load(time_course_file)  # Load time course data
-        self.index_mapping = None  # Will hold the index mapping for RH if needed
-
-        # Create an index mapping for RH to fix misalignment
-        if self.hemisphere == 'rh':
-            self.index_mapping = self.create_rh_index_mapping()
-
-        self.tSeries = self.load_time_courses()
-
-    def create_rh_index_mapping(self):
-        """
-        Creates a mapping of label file indices to the correct indices in the .npy file for RH.
-        """
-        # Extract the list of indices from the .label file
-        label_indices = [v.index for v in self.vertices]
-        
-        # Load the .npy file directly to check its shape
-        npy_indices = range(self.data.shape[1]) # range(0, 217915)
-
-        # Create a mapping: .label file index -> .npy file index
-        index_mapping = {label_idx: npy_idx for npy_idx, label_idx in enumerate(label_indices)}
-        print(index_mapping)
-        # Print a few examples for verification
-        print("Sample index mapping for RH (label index -> .npy index):")
-        for i, (label_idx, npy_idx) in enumerate(index_mapping.items()):
-            if i < 5:
-                print(f"Label Index {label_idx} -> NPY Index {npy_idx}")
-            else:
-                break
-
-        return index_mapping
-
-    def load_time_courses(self) -> dict:
-        """
-        Extracts time courses for each vertex, adjusting for RH misalignment if necessary.
-        """
-        duration = self.data.shape[0]
-        tSeries = {}
-
-        for vertex in self.vertices:
-            index = vertex.index
-            
-            # Adjust the index if it's RH and mapping exists
-            if self.hemisphere == 'rh' and self.index_mapping:
-                if index in self.index_mapping:
-                    npy_index = self.index_mapping[index]
-                else:
-                    #print(f"Index {index} not found in RH mapping, skipping.")
-                    continue  # Skip if index not found in mapping
-            else:
-                npy_index = index  # Use the index directly for LH
-
-            # Extract time course using the adjusted index
-            time_course = self.data[self.cutoff_volumes:duration, npy_index]
-            tSeries[index] = time_course
-
-        return tSeries
-
-    def z_score(self) -> dict:
-        """
-        Performs z-scoring (standardization) of the time course data for each vertex.
-        """
-        z_scored_data = {}
-        for index, time_course in self.tSeries.items():
-            z_scored_data[index] = (time_course - np.nanmean(time_course)) / np.nanstd(time_course)
-        return z_scored_data
-
-    def plot_time_series(self, vertex_index: int, show: bool = True) -> None:
-        if vertex_index not in self.tSeries:
-            print(f"Vertex {vertex_index} not found in the time series data.")
-            return
-
-        time_course = self.tSeries[vertex_index]
-        plt.figure(figsize=(10, 5))
-        plt.plot(time_course, label=f'Vertex Index: {vertex_index}', color='blue')
-        plt.title(f'Time Series for Vertex {vertex_index}')
-        plt.xlabel('Time (Volumes) after Cutoff')
-        plt.ylabel('BOLD Signal')
         plt.legend()
         plt.grid()
         if show:
@@ -392,7 +292,7 @@ class ConnectiveField:
         return selected_vertex_source
 
     # Define Range of Sizes
-    def define_size_range(self, start: float = 0.05, stop: float = 10.5, num: int = 50) -> list:
+    def define_size_range(self, start: float = 10.5, stop: float = 0.05, num: int = 50) -> list:
         sigma_values = np.linspace(start, stop, num).tolist()
         print(f"Sigma Values for Optimization: {sigma_values}")
         return sigma_values
@@ -413,7 +313,7 @@ class ConnectiveField:
 
         if save_path:
             plt.savefig(save_path)  # Save the plot to the specified path
-            plt.close()  # Close the plot to free memory
+            plt.close() 
         else:
             plt.show()  # Display the plot on the screen
 
@@ -425,12 +325,8 @@ class ConnectiveField:
 
     def compute_prediction(self, source_time_series: dict, distances: np.ndarray, sigma_values: np.ndarray):
         weights_matrix = self.calculate_gaussian_weights(distances, sigma_values) 
-        #print(weights_matrix)
-        #print(weights_matrix.shape)
         # Extract time series for all source vertices
         filtered_vertices = list(distance_matrix.index)
-        # print(filtered_vertices)
-        #print(filtered_vertices.shape)
         filtered_time_series = [source_time_series[v] for v in filtered_vertices]
 
         # Stack time series into a matrix (128, 1688) time course x source vertices 
@@ -439,94 +335,149 @@ class ConnectiveField:
         # Compute all predictions at once using dot product (128,50) time course x sigma value 
         # predicted time series for a specific sigma value, and each row represents a specific time point
         predicted_time_series_matrix = np.dot(time_series_matrix, weights_matrix) 
-        # print(f"The predicted time series matrix shape: {predicted_time_series_matrix.shape}")
-        return predicted_time_series_matrix, weights_matrix  # (time points x sigma values), (vertices x sigma values)
+        return predicted_time_series_matrix, weights_matrix 
 
     def evaluate_fit(self, observed: np.ndarray, predicted_matrix: np.ndarray) -> np.ndarray:
         ss_total = np.sum(observed ** 2) 
         ss_residual = np.sum((observed[:, np.newaxis] - predicted_matrix) ** 2, axis=0)
-        # print(observed.shape) # (128,) signal over time (the time points)
-        # print(predicted_matrix.shape) # (128, 50) predicted signals for all 50 sigma values
-        # print(observed[:, np.newaxis].shape)
-        #if ss_total == 0:
-        #    variance_explained = np.zeros(predicted_matrix.shape[1]) 
-        #else:
         variance_explained = 1 - (ss_residual / ss_total)
-        # variance_explained = 1 - (ss_residual / ss_total)
         return variance_explained
 
     def optimize_parameters(self, observed: np.ndarray, source_time_series: dict, 
-                            distance_matrix: pd.DataFrame, sigma_values: list, source_vertices) -> bool:
+                            distance_matrix: pd.DataFrame, sigma_values: list, source_vertices) -> tuple:
         col_position = distance_matrix.columns.get_loc(self.center_vertex.index) 
-        row_data = distance_matrix.iloc[:, col_position].to_numpy().reshape(-1, 1)  
+        row_data = distance_matrix.iloc[:, col_position].to_numpy().reshape(-1, 1)
 
+        # Coarse Grid Search
         predicted_matrix, weights_matrix = self.compute_prediction(source_time_series, row_data, sigma_values)
         variance_explained = self.evaluate_fit(observed, predicted_matrix)
 
         best_index = np.argmax(variance_explained)
-        best_sigma = sigma_values[best_index]
+        best_sigma_coarse = sigma_values[best_index]
         best_variance_explained = variance_explained[best_index]
         best_prediction = predicted_matrix[:, best_index]
-        best_weights = weights_matrix[:, best_index]
 
-        # Skip storing fits with 0 variance explained
-        #if best_variance_explained == 0.0:
-        #    print(f"Skipping target vertex due to 0 variance explained.")
-        #    return False  # Indicate that no valid fit was found
+        # Store coarse fit
+        self.sigma_coarse = best_sigma_coarse
+        self.variance_explained_coarse = best_variance_explained
 
-        # Store the best results safely
-        self.sigma = best_sigma
-        self.variance_explained = best_variance_explained
-        self.predicted_time_course = best_prediction
-        self.best_source_index = self.center_vertex.index
-        self.gaussian_weights = best_weights
-
-        return True  # Indicate that a valid fit was found
+        return best_sigma_coarse, best_variance_explained, best_prediction  # Return only coarse results
 
     def iterative_fit_target(self, target_vertex: Vertex, target_time_course, source_vertices: list[Vertex], 
                             source_time_series: dict, distance_matrix: pd.DataFrame, 
                             sigma_values: list, best_fit_output: str, individual_output_dir: str, plot_dir: str):
-        results = []  # Store all fits for this target vertex
+        results = []  
         self.observed_time_series = target_time_course.tSeries[target_vertex.index]
 
-        for source_vertex in source_vertices:  
-            self.center_vertex = source_vertex  # Set center_vertex to the current source vertex
-            valid_fit = self.optimize_parameters(self.observed_time_series, source_time_series, distance_matrix, sigma_values, source_vertices)
-            
-            #if not valid_fit:  # Skip storing results if no valid fit was found
-            #    continue  
+        best_fit_temp = None
+        best_coarse_ve = -np.inf
 
-            weight_dict = dict(zip(distance_matrix.columns, self.gaussian_weights))  
+        # Iterate through all source vertices: only coarse search
+        for source_vertex in source_vertices:  
+            self.center_vertex = source_vertex
+            sigma_coarse, ve_coarse, prediction_coarse = self.optimize_parameters(
+                self.observed_time_series, source_time_series, distance_matrix, sigma_values, source_vertices)
+
             results.append({
                 "Target Vertex Index": target_vertex.index,
-                "Source Vertex Index": self.best_source_index,
-                "Best Sigma": self.sigma,
-                "Best Variance Explained": self.variance_explained,
-                "Gaussian Weights": weight_dict  
+                "Source Vertex Index": source_vertex.index,
+                "Best Sigma Coarse": sigma_coarse,
+                "Best Variance Explained Coarse": ve_coarse,
             })
 
-        #if len(results) == 0:  # If no fits were stored, don't write an empty file
-        #    print(f"No valid fits found for target vertex {target_vertex.index}, skipping file save.")
-        #    return  
+            # Track best fit across all source vertices (coarse)
+            if ve_coarse > best_coarse_ve:
+                best_coarse_ve = ve_coarse
+                best_fit_temp = {
+                    "source_vertex": source_vertex,
+                    "sigma_coarse": sigma_coarse,
+                    "ve_coarse": ve_coarse,
+                    "prediction_coarse": prediction_coarse
+                }
 
-        # Convert results to DataFrame
+        # Save all coarse results
         results_df = pd.DataFrame(results)
         individual_file = os.path.join(individual_output_dir, f"all_fits_target_vertex_{target_vertex.index}.csv")
         results_df.to_csv(individual_file, index=False)
-        """TRIAL"""
-        # Append the best fit to the best fit CSV file
-        maxVE = results_df["Best Variance Explained"].max()
-        best_fit = results_df[results_df["Best Variance Explained"] == maxVE]
-        best_fit_df = best_fit.copy()
+
+        # Finer search now 
+        self.center_vertex = best_fit_temp["source_vertex"]
+        row_data = distance_matrix.loc[:, self.center_vertex.index].to_numpy().reshape(-1, 1)
+
+        sigma_finer, prediction_finer, ve_finer = self.finer_search_sigma(
+            self.observed_time_series, source_time_series, row_data, best_fit_temp["sigma_coarse"])
+
+        # Store final best fit
+        self.sigma = sigma_finer
+        self.variance_explained = ve_finer
+        self.predicted_time_course = prediction_finer
+        self.best_source_index = self.center_vertex.index
+
+        # Save best fit result
+        best_fit_df = pd.DataFrame([{
+            "Target Vertex Index": target_vertex.index,
+            "Source Vertex Index": self.best_source_index,
+            "Best Sigma Coarse": best_fit_temp["sigma_coarse"],
+            "Best Sigma Finer": sigma_finer,
+            "Best Variance Explained Coarse": best_fit_temp["ve_coarse"],
+            "Best Variance Explained Finer": ve_finer
+        }])
+
         best_fit_df.to_csv(best_fit_output, mode="a", index=False, header=not os.path.exists(best_fit_output))
 
-        # Plot observed vs. predicted for the best fit
-        source_vertex_index = best_fit["Source Vertex Index"].iloc[0]
-        self.center_vertex = next(v for v in source_vertices if v.index == source_vertex_index)
-        self.optimize_parameters(self.observed_time_series, source_time_series, distance_matrix, sigma_values, source_vertices)  
+        # Plot and save
         plot_file = os.path.join(plot_dir, f"best_fit_plot_target_vertex_{target_vertex.index}.png")
         os.makedirs(os.path.dirname(plot_file), exist_ok=True)
         self.plot_time_series(save_path=plot_file)
+
+    def finer_search_sigma(self, observed: np.array, source_time_series: dict, distances: np.array, initial_sigma: float):   
+        sigma_trials = [] # Store the sigma values tried during the optimization 
+        
+        def objective(sigma_array): 
+            """ OBJ: find the best sigma that give the higest VE 
+            minimize is minimizing = if you return the negative ve the code will try to make ve as small as possible
+            VE.A = 0.92
+            VE.B = 0.95
+            The code will try to make VE as small as possible, choosing VE.A. If we make it negative, 
+            VE.A = - 0.92
+            VE.B = - 0.95
+            The code will try to make VE as small as possible, choosing - 0.95
+
+            """
+
+            # Extract the current initial sigma value. For example from [0.68979592] to 0.68979592
+            sigma = sigma_array[0]
+            sigma_trials.append(sigma) # Adds it to the sigma tried list
+
+            weights = self.calculate_gaussian_weights(distances, [sigma]).flatten()
+            vertex_indices = list(source_time_series.keys())
+            time_series_matrix = np.stack([source_time_series[v_idx] for v_idx in vertex_indices], axis=1)
+            predicted = np.dot(time_series_matrix, weights)
+
+            ve = self.evaluate_fit(observed, predicted[:, np.newaxis])[0] # Positive VE
+            return -ve # Negative VE
+        
+        # Call Nelder-Mead method to find the sigma values with maximum VE
+        result = minimize(objective, [initial_sigma], method='Nelder-Mead', bounds=[(0.05, 10.5)])
+        # Best sigma stores the sigma value that gave the maximum variance explained and [0] returns it in float form
+        best_sigma = result.x[0] 
+
+        # Calculate the gaussian weights for all the vertices in the source  weights. Flattens from (1688, 1) to (1688,)
+        weights = self.calculate_gaussian_weights(distances, [best_sigma]).flatten()
+        # Get the indices of the vertices in the source dictionary (vertex index: time series)
+        vertex_indices = list(source_time_series.keys())
+        # Create the time series matrix by stacking all the time series of each vertex indext (128, 1688). 
+        # Stacks from (128,) along axis 1 to (128, 1688)
+        time_series_matrix = np.stack([source_time_series[v_idx] for v_idx in vertex_indices], axis=1)
+        # Get the predicted time course (128, 1688) and (1688,)
+        prediction = np.dot(time_series_matrix, weights)
+        # Transofrm the prediction to (128, 1) to match the observed time series reshaped inside evaluate the fit
+        # Extract the float value of the variance explained value with [0]
+        variance_explained = self.evaluate_fit(observed, prediction[:, np.newaxis])[0] # Positive again
+
+        print(f"Sigma values: {sigma_trials}")
+        return best_sigma, prediction, variance_explained
+
 
 # %%
 class MCMC:
@@ -565,7 +516,6 @@ class MCMC:
         '''
         return (np.exp(-((x-mu)/(sigma))**2)/2)/(sigma*np.sqrt(2*np.pi))
 
-    ### WHAT IS DPROP?
     def dProp(self, lStepSize, maxStep):
         return np.abs(maxStep * self.normcdf(lStepSize) - maxStep / 2)
 
@@ -613,8 +563,6 @@ class MCMC:
         w = self.weight(d=d, lSigma=lSigma, radius=self.radius, rMin= self.rMin)
         w = w/np.sum(w)
         w = w.astype(np.float32)
-        print(self.tSeriesSource.shape) # (1688, 128)
-        print(w.shape) # (1688,)
         predictions = np.dot(self.tSeriesSource, w) 
 
 
@@ -659,9 +607,7 @@ class MCMC:
         for i in range(n_voxels):
             print(f"Processing voxel {i+1}/{n_voxels}")
             y = self.tSeriesTarget[:, i] 
-            print(y.shape) # (1251,)
-            y = (y - np.mean(y)) / np.std(y) # (1251,)
-            print(y.shape) # (1251,)
+            y = (y - np.mean(y)) / np.std(y) 
 
             centerSourceIndex = np.random.randint(len(self.idxSource))
             centerSource = self.idxSource[centerSourceIndex] 
@@ -777,7 +723,58 @@ class MCMC:
                         posterior[:, j] = np.array([xiCurrent[0], xiCurrent[1], centerSourceIndex])
 
 
-            # bestFit[i, :], postDistB[i, :], logLikelihoodB[i, :], priorDistB[i, :], posteriorLatentB[i, :, :], posteriorB[i, :, :], veB[i, :] = compute_burn_in_cf(postDist, loglikelihood, priorDist, posteriorLatent, posterior, ve, burnIn, percBurnIn)
+        # bestFit[i, :], postDistB[i, :], logLikelihoodB[i, :], priorDistB[i, :], posteriorLatentB[i, :, :], posteriorB[i, :, :], veB[i, :] = compute_burn_in_cf(postDist, loglikelihood, priorDist, posteriorLatent, posterior, ve, burnIn, percBurnIn)
+            # After MCMC sampling, store best fit for this voxel
+        max_post_index = np.argmax(postDist)
+        best_sigma = posterior[0, max_post_index]
+        best_beta = posterior[1, max_post_index]
+        best_source_index = posterior[2, max_post_index]
+
+        bestFit[i, :] = [best_sigma, best_beta, best_source_index, i]
+        # --- Save MCMC Results to Disk ---
+        output_dir = "mcmc_results"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Save bestFit as CSV
+        bestFit_df = pd.DataFrame(bestFit, columns=["Sigma", "Beta", "SourceIndex", "VoxelIndex"])
+        bestFit_df.to_csv(f"{output_dir}/bestFit.csv", index=False)
+
+        # Helper function to save per-iteration arrays
+        def save_iter_array(array, name, voxel_index=0):
+            # For per-voxel arrays, save the specified voxel index
+            if array.ndim == 3:
+                data = array[voxel_index]
+            elif array.ndim == 2:
+                data = array
+            else:
+                data = array
+            # Convert 1D or 2D to DataFrame
+            if data.ndim == 1:
+                df = pd.DataFrame({name: data})
+            elif data.ndim == 2:
+                df = pd.DataFrame(data.T, columns=[f"{name}_dim{i}" for i in range(data.shape[0])])
+            else:
+                print(f"Skipping {name}, unsupported shape: {data.shape}")
+                return
+            df.to_csv(f"{output_dir}/{name}.csv", index=False)
+
+        # Save arrays
+        save_iter_array(postDistB, "postDistB")
+        save_iter_array(logLikelihoodB, "logLikelihoodB")
+        save_iter_array(priorDistB, "priorDistB")
+        save_iter_array(posteriorB, "posteriorB")
+        save_iter_array(posteriorLatentB, "posteriorLatentB")
+        save_iter_array(accepted, "accepted")
+        save_iter_array(pAccept, "pAccept")
+        save_iter_array(ve, "ve")
+        save_iter_array(postDist, "postDist")
+        save_iter_array(loglikelihood, "loglikelihood")
+        save_iter_array(priorDist, "priorDist")
+        save_iter_array(posteriorLatent, "posteriorLatent")
+        save_iter_array(posterior, "posterior")
+
+        print(f"✅ MCMC results saved in directory: {output_dir}")
+
 
         return bestFit, postDistB, logLikelihoodB, priorDistB, posteriorB, posteriorLatentB, accepted, pAccept, ve, postDist, loglikelihood, priorDist, posteriorLatent, posterior
 
@@ -796,13 +793,13 @@ if __name__ == "__main__":
     
     subj = 'sub-46'
     ses = 'ses-02'
-    hemi = 'rh'
+    # hemi = 'rh'
     delineation = 'manualdelin'
     denoising = 'nordic'
     cutoff_volumes = 8
-    target_visual_area = 2
+    # target_visual_area = 2
     source_visual_area = 1
-    load_one = None  # Set to True if you want to load just one vertex, False to load them all
+    load_one = None 
     
     # MONTE CARLO MARKOV CHAIN APPROACH
     n_iter = 17500
@@ -816,105 +813,93 @@ if __name__ == "__main__":
     lSigma = 1.0
     lBeta = -5.0
     
-    labels_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.{delineation}.label"
-    # time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-RET_hemi-LR_desc-avg_bold_GM.npy"
-    # time_series_path_lh = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_ses-02_task-RET_hemi-lh_desc-avg_bold_GM.npy"
-    # time_series_path_rh = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_ses-02_task-RET_hemi-rh_desc-avg_bold_GM.npy"
-    time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_ses-02_task-RET_hemi-{hemi}_desc-avg_bold_GM.npy"
+    hemispheres = ['lh', 'rh']
+    target_visual_areas = [2, 3]
+    for hemi, target_visual_area in itertools.product(hemispheres, target_visual_areas):
+        labels_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.{delineation}.label"
+        time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_ses-02_task-RET_hemi-{hemi}_desc-avg_bold_GM.npy"
+        output_dir = f"{CODE_PATH}"
+        distance_matrix_path = f"{CODE_PATH}/{subj}_distance_{hemi}_{source_visual_area}.csv"
+        output_dir_itertarget = f"{CODE_PATH}/results/{subj}/{hemi}/V{target_visual_area}->V{source_visual_area}" 
+        output_dir_itertarget_ONE = f"{CODE_PATH}/results_ONE/{subj}/{hemi}/V{target_visual_area}->V{source_visual_area}" 
+        os.makedirs(output_dir_itertarget, exist_ok=True)
+        os.makedirs(output_dir_itertarget_ONE, exist_ok=True)
+        best_fit_output = f"{output_dir_itertarget}/best_fits.csv"
+        individual_output_dir = f"{output_dir_itertarget}/individual_fits"
+        os.makedirs(individual_output_dir, exist_ok=True)
+        best_fit_output_ONE = f"{output_dir_itertarget_ONE}/best_fits.csv"
+        individual_output_dir_ONE = f"{output_dir_itertarget_ONE}/individual_fits"
+        os.makedirs(individual_output_dir_ONE, exist_ok=True)
 
-    #time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-RET_hemi-{hemi}_desc-avg_bold_GM.npy"
-    output_dir = f"{CODE_PATH}"
-    distance_matrix_path = f"{CODE_PATH}/{subj}_distance_{hemi}_{source_visual_area}.csv"
-    output_dir_itertarget = f"{CODE_PATH}/results/{subj}/{hemi}/V{target_visual_area}->V{source_visual_area}" 
-    output_dir_itertarget_ONE = f"{CODE_PATH}/results_ONE/{subj}/{hemi}/V{target_visual_area}->V{source_visual_area}" 
-    os.makedirs(output_dir_itertarget, exist_ok=True)
-    os.makedirs(output_dir_itertarget_ONE, exist_ok=True)
-    best_fit_output = f"{output_dir_itertarget}/best_fits.csv"
-    individual_output_dir = f"{output_dir_itertarget}/individual_fits"
-    os.makedirs(individual_output_dir, exist_ok=True)
-    best_fit_output_ONE = f"{output_dir_itertarget_ONE}/best_fits.csv"
-    individual_output_dir_ONE = f"{output_dir_itertarget_ONE}/individual_fits"
-    os.makedirs(individual_output_dir_ONE, exist_ok=True)
+        # 1. Load Source and Target Vertices 
+        idxTarget = Vertex.load_vertices(labels_path, target_visual_area, load_one)
+        idxSource = Vertex.load_vertices(labels_path, source_visual_area, load_one)
 
-    # 1. Load Source and Target Vertices 
-    idxTarget = Vertex.load_vertices(labels_path, target_visual_area, load_one)
-    idxSource = Vertex.load_vertices(labels_path, source_visual_area, load_one)
+        # 2. Load the Distance Matrix
+        distances_class = Distances(subject=subj, hemi=hemi, matrix_dir=CODE_PATH, csv_path=distance_matrix_path)
+        distance_matrix = distances_class.geodesic_dists(hemi=hemi, subject=subj, vertices=idxSource, source=source_visual_area, output_dir=CODE_PATH)
+        distance_matrix = pd.read_csv(distance_matrix_path, index_col=0) # Ensure distance_matrix is loaded as a Pandas DataFrame with proper indexing
+        distance_matrix.index = distance_matrix.index.astype(int)  # Convert index to integers
+        distance_matrix.columns = distance_matrix.columns.astype(int)  # Convert columns to integers
 
-    # 2. Load the Distance Matrix
-    distances_class = Distances(subject=subj, hemi=hemi, matrix_dir=CODE_PATH, csv_path=distance_matrix_path)
-    distance_matrix = distances_class.geodesic_dists(hemi=hemi, subject=subj, vertices=idxSource, source=source_visual_area, output_dir=CODE_PATH)
-    distance_matrix = pd.read_csv(distance_matrix_path, index_col=0) # Ensure distance_matrix is loaded as a Pandas DataFrame with proper indexing
-    distance_matrix.index = distance_matrix.index.astype(int)  # Convert index to integers
-    distance_matrix.columns = distance_matrix.columns.astype(int)  # Convert columns to integers
+        # 3. Load Time Series Data
+        target_time_course = TimeCourse(time_course_file=time_series_path, vertices=idxTarget, cutoff_volumes=cutoff_volumes)
+        source_time_course = TimeCourse(time_course_file=time_series_path, vertices=idxSource, cutoff_volumes=cutoff_volumes)
+        z_scored_target = target_time_course.z_score() 
+        z_scored_source = source_time_course.z_score() 
 
-    # 3. Load Time Series Data
-    #target_time_course = TimeCourse(time_course_file=time_series_path_rh, vertices=idxTarget, cutoff_volumes=cutoff_volumes, hemisphere=hemi)
-    #source_time_course = TimeCourse(time_course_file=time_series_path_rh, vertices=idxSource, cutoff_volumes=cutoff_volumes, hemisphere=hemi)
-    target_time_course = TimeCourse(time_course_file=time_series_path, vertices=idxTarget, cutoff_volumes=cutoff_volumes)
-    source_time_course = TimeCourse(time_course_file=time_series_path, vertices=idxSource, cutoff_volumes=cutoff_volumes)
-    
-    #target_time_course.plot_time_series(vertex_index=113616)# 113616 
-    # source_time_course.plot_time_series(vertex_index=113616)
-    z_scored_target = target_time_course.z_score() 
-    z_scored_source = source_time_course.z_score() 
+        # 4. Select a Fixed Target Vertex (V3) and a Random Center Vertex (V1)
+        # Randomly: 
+        connective_field = ConnectiveField(center_vertex=None, vertex=None)  # Initialize with placeholders
+        target_vertex = connective_field.select_target_vertex(idxTarget) # Select Target Vertex
+        center_vertex = connective_field.select_source_vertex(idxSource) # Select Center Vertex
+        # Not randomly: 
+        # target_vertex = connective_field.select_target_vertex(idxTarget, index=0)  # Select the first vertex
+        # center_vertex = connective_field.select_source_vertex(idxSource, index=15)  # Select the 10th vertex
 
-    # 4. Select a Fixed Target Vertex (V3) and a Random Center Vertex (V1)
-    # Randomly: 
-    connective_field = ConnectiveField(center_vertex=None, vertex=None)  # Initialize with placeholders
-    target_vertex = connective_field.select_target_vertex(idxTarget) # Select Target Vertex
-    center_vertex = connective_field.select_source_vertex(idxSource) # Select Center Vertex
-    # Not randomly: 
-    # target_vertex = connective_field.select_target_vertex(idxTarget, index=0)  # Select the first vertex
-    # center_vertex = connective_field.select_source_vertex(idxSource, index=15)  # Select the 10th vertex
-
-    # 5. Create the ConnectiveField Class based on those voxels 
-    # target_vertex = next((v for v in idxTarget if v.index == 6747), None) # 98910
-    connective_field = ConnectiveField(center_vertex=center_vertex, vertex=target_vertex)
-    
-    # 6. Define Sigma Range for Optimization# Define Range of Sizes
-    sigma_values = connective_field.define_size_range(start=0.05, stop=10.5, num=50) # e.i. 0.11 ish
-    
-    # 7. Extract the Time Courses
-    # Dictionary where the keys are the vertex indices and the values are their corresponding time series arrays.
-    source_time_series = {v.index: source_time_course.tSeries[v.index] for v in idxSource} 
-    target_time_series = {v.index: target_time_course.tSeries[v.index] for v in idxTarget} 
-    observed = target_time_course.tSeries[target_vertex.index] # Extracts the time series for the target vertex in V3 (target area).
-
-    # 8. Run Optimization
-    connective_field.optimize_parameters(observed = observed, source_time_series = source_time_series, distance_matrix = distance_matrix, sigma_values = sigma_values, source_vertices = idxSource)
-    # 10. Plot the Observed vs. Predicted Time Series
-    connective_field.observed_time_series = observed
-    
-    # Run the iterative fit for all target vertices
-    start_time = time.time()
-    connective_field = ConnectiveField(center_vertex=None, vertex=None)  # Initialize with placeholders
-    # target_vertex = idxTarget[0] # No time course
-    
-    #target_vertex = next((v for v in idxTarget if v.index == 113616), None)
-    #connective_field.iterative_fit_target(
-    #    target_vertex=target_vertex,
-    #    target_time_course=target_time_course,
-    #    source_vertices=idxSource,
-    #    source_time_series=source_time_series,
-    #    distance_matrix=distance_matrix,
-    #    sigma_values=sigma_values,
-    #    best_fit_output=best_fit_output_ONE,
-    #    individual_output_dir=individual_output_dir_ONE, 
-    #    plot_dir = individual_output_dir_ONE)
-    
-    # Iterate through all target vertices
-    for target_vertex in idxTarget:
-        connective_field.iterative_fit_target(
-            target_vertex=target_vertex,
-            target_time_course=target_time_course,
-            source_vertices=idxSource,
-            source_time_series=source_time_series,
-            distance_matrix=distance_matrix,
-            sigma_values=sigma_values,
-            best_fit_output=best_fit_output,
-            individual_output_dir=individual_output_dir, plot_dir=individual_output_dir)
+        # 5. Create the ConnectiveField Class based on those voxels 
+        connective_field = ConnectiveField(center_vertex=center_vertex, vertex=target_vertex)
         
-    elapsed_time = (time.time() - start_time) / 60 ## 97 minutes 
-    print(f"Iterative fit for all target vertices completed in {elapsed_time:.2f} minutes.")  # 500.00 sub-46 # 198.60
+        # 6. Define Sigma Range for Optimization# Define Range of Sizes
+        sigma_values = connective_field.define_size_range(start=10.5, stop=0.05, num=50) # e.i. 0.11 ish ## Reverse start and stop (start = 10.5, stop = 0.05)
+        
+        # 7. Extract the Time Courses
+        # Dictionary where the keys are the vertex indices and the values are their corresponding time series arrays.
+        source_time_series = {v.index: source_time_course.tSeries[v.index] for v in idxSource} 
+        target_time_series = {v.index: target_time_course.tSeries[v.index] for v in idxTarget} 
+        observed = target_time_course.tSeries[target_vertex.index] # Extracts the time series for the target vertex in V3 (target area).
+
+        # 8. Run Optimization
+        connective_field.optimize_parameters(observed = observed, source_time_series = source_time_series, distance_matrix = distance_matrix, sigma_values = sigma_values, source_vertices = idxSource)
+        connective_field.observed_time_series = observed
+        
+        # Run the iterative fit for all target vertices
+        start_time = time.time()
+        #connective_field = ConnectiveField(center_vertex=None, vertex=None)  # Initialize with placeholders
+        #target_vertex = idxTarget[0] # No time course
+        #connective_field.iterative_fit_target(
+        #    target_vertex=target_vertex,
+        #    target_time_course=target_time_course,
+        #    source_vertices=idxSource,
+        #    source_time_series=source_time_series,
+        #    distance_matrix=distance_matrix,
+        #    sigma_values=sigma_values,
+        #    best_fit_output=best_fit_output_ONE,
+        #    individual_output_dir=individual_output_dir_ONE, 
+        #    plot_dir = individual_output_dir_ONE)
+        
+        # Iterate through all target vertices
+        for target_vertex in idxTarget:
+            connective_field.iterative_fit_target(
+                target_vertex=target_vertex,
+                target_time_course=target_time_course,
+                source_vertices=idxSource,
+                source_time_series=source_time_series,
+                distance_matrix=distance_matrix,
+                sigma_values=sigma_values,
+                best_fit_output=best_fit_output,
+                individual_output_dir=individual_output_dir, plot_dir=individual_output_dir)
+        elapsed_time = (time.time() - start_time) / 60 ## 97 minutes 
+        print(f"Iterative fit for all target vertices completed in {elapsed_time:.2f} minutes.")  # 500.00 sub-46 # 198.60
 
 
