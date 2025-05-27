@@ -1,3 +1,11 @@
+### NEXT STEP
+### Create the numpy array for lh and rh inside time course
+### Manual delin creation file to be added 
+### Bayesian implementation 
+### Trendline analysis: plots and statistics of the csv fiel of the slope per subject 
+### Trendline analysis: csv file for connective field size slope per subject
+
+
 # %% [markdown]
 # ### **Connective Field Modeling: Object-Oriented Programming Version**
 # 
@@ -50,7 +58,7 @@
 #    <small>- Keep the parameters that provide the best fit for each voxel.</small> 
 # 
 import sys
-subj=f'sub-{sys.argv[1:][0]}'
+#subj=f'sub-{sys.argv[1:][0]}'
 
 
 # %% [markdown]
@@ -74,7 +82,7 @@ from scipy.optimize import minimize
 import itertools
 from vertex import Vertex
 from joblib import Parallel, delayed
-from CFandPRF import load_prf, filter_prf, PRFModel, source_eccentricity_two
+from CFandPRF import load_prf, filter_prf, PRFModel, source_eccentricity, source_eccentricity_benson
 
 # %%
 def surfs(subject: str, hemi:str):
@@ -275,7 +283,7 @@ class ConnectiveField:
     # Define Range of Sizes
     def define_size_range(self, start: float = 1, stop: float = -1.25, num: int = 50) -> list:
         sigma_values = np.logspace(start, stop, num).tolist()
-        print(f"Sigma Values for Optimization: {sigma_values}")
+        # print(f"Sigma Values for Optimization: {sigma_values}")
         return sigma_values
    
     def plot_time_series(self, save_path: str = None):
@@ -469,132 +477,220 @@ class ConnectiveField:
 
 # %%
 if __name__ == "__main__":
-    MAIN_PATH = '/scratch/hb-EGRET-AAA/projects/EGRET+/derivatives'
+    #MAIN_PATH = '/scratch/hb-EGRET-AAA/projects/EGRET+/derivatives'
+    MAIN_PATH = '/Volumes/FedericaCardillo/pre-processing/projects/PROJECT_EGRET-AAA/derivatives'
 
-    # subj = 'sub-46'
+    subj = 'sub-02'
     ses = 'ses-02'
     cutoff_volumes = 8
     hemispheres = ['lh', 'rh']
     source_visual_area = 1
     source_name = 'V1'
-    target_visual_areas = [1, 2, 3] # Why 7?
-    rois_list = np.array([['V1', 'V2', 'V3'], [1, 2, 3]]) # Why 7?
+    # target_visual_areas = [1, 2, 3] # Why 7?
+    # target_visual_areas = [2, 3]
+    target_visual_areas = [4, 7, 8]
+    rois_list = [('V1', 1),('V4', 4),('LO', (7, 8))]
+
+
+    #rois_list = np.array([['V1', 'V2', 'V3'], [1, 2, 3]]) # Why 7?
     load_one = None
     ncores = 65
     filter_v1 = True
     processing_method = "zscore"  # Options: "zscore", "demean", "none"
 
     # Lists
-    atlases = ['manual', 'benson']
-    tasks = ['RET', 'RET2', 'RestingState']
-    denoising_methods = ['nordic', 'nordic_sm4']
+    # atlases = ['benson', 'manual']
+    # atlases = ['manual', 'benson']
+    atlases = ['benson']
+    # tasks = ['RET', 'RET2', 'RestingState']
+    tasks = ['RestingState']
+    # denoising_methods = ['nordic', 'nordic_sm4']
+    denoising_methods = ['nordic']
+    runs = [1, 2]   # Since RestingState has 2 runs
+    ecc = "all" ### DOUBLE CHECK 
+    
+    
 
     start_time = time.time()
 
     for atlas, task, denoising in itertools.product(atlases, tasks, denoising_methods):
         print(f"\nProcessing: Atlas={atlas}, Task={task}, Denoising={denoising}")
-
-        for hemi, target_visual_area in itertools.product(hemispheres, target_visual_areas):
-            if atlas == "manual":
-                labels_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.manualdelin.label"
-            else:
-                labels_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.benson14_varea-0001.label"
-
-            if hemi == 'lh':
-                time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-{task}_hemi-lh_desc-avg_bold_GM.npy"
-            else:
-                time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-{task}_hemi-rh_desc-avg_bold_GM.npy"
-
-            # Outputs
-            output_dir = f"{MAIN_PATH}/CFM/{subj}/{ses}/{atlas}/{task}/{denoising}/GM" # Needs the name of the visual area actually
-            os.makedirs(output_dir, exist_ok=True)
-            target_name_idx = np.where(str(target_visual_area) == rois_list[1])
-            target_name = rois_list[0][target_name_idx][0]
-            distance_matrix_path = f"{output_dir}/Distance_Matrices"
-            os.makedirs(distance_matrix_path, exist_ok=True)
-            distance_matrix_file = f"{distance_matrix_path}/{subj}_distance_{hemi}_{source_visual_area}.csv"
-            output_dir_itertarget = f"{output_dir}/{hemi}/{target_name}-{source_name}"
-            os.makedirs(output_dir_itertarget, exist_ok=True)
-            best_fit_output = f"{output_dir_itertarget}/best_fits.csv"
-            individual_output_dir = f"{output_dir_itertarget}/individual_fits"
-            os.makedirs(individual_output_dir, exist_ok=True)
-
-            # 1. Load Vertices
-            idxTarget = Vertex.load_vertices(labels_path, target_visual_area, atlas, load_one)
-            print(f"Target Area: {idxTarget.shape}")
-            idxSource = Vertex.load_vertices(labels_path, source_visual_area, atlas, load_one)
-            print(f"Source Area: {idxSource.shape}")
-
-            # 1a. Apply Eccentricity Filtering Based on Atlas
-            if atlas == "benson":
-                ecc_dict = source_eccentricity_two(subj=subj, hemi=hemi, main_path=MAIN_PATH, atlas=atlas,
-                    denoising=denoising, task=task, freesurfer_path=f"{MAIN_PATH}/freesurfer",label_file=labels_path)
-                idxTarget = [v for v in idxTarget if v.index in ecc_dict and ecc_dict[v.index] < 10]
-                idxSource = [v for v in idxSource if v.index in ecc_dict and ecc_dict[v.index] < 10]
-                filtered_idxSource = idxSource  
-                filtered_idxTarget = idxTarget  
-                print(f"Filtered Source Area: {len(filtered_idxSource)}")
-                print(f"Filtered Target Area: {len(filtered_idxTarget)}")
-            else:
-                if filter_v1:
-                    ecc_dict = source_eccentricity_two(subj=subj, hemi=hemi, main_path=MAIN_PATH, atlas=atlas,
-                        denoising=denoising, task=task, freesurfer_path=f"{MAIN_PATH}/freesurfer")
-                    filtered_idxSource = [v for v in idxSource if v.index in ecc_dict and 0.5 <= ecc_dict[v.index] <= 6]
-                    print(f"Filtered Source Area: {len(filtered_idxSource)}")
-                    filtered_idxTarget = idxTarget
+    
+        if task == "RestingState":
+            current_runs = runs
+        else:
+            current_runs = [None]
+    
+        for run in current_runs:
+            for hemi, target_visual_area in itertools.product(hemispheres, target_visual_areas):
+    
+                if atlas == "manual":
+                    labels_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.manualdelin.label"
                 else:
-                    filtered_idxSource = idxSource
-                    filtered_idxTarget = idxTarget
-                    print(f"Filtered Source Area: {len(filtered_idxSource)}")
-            
-            # 2. Calculate Distance Matrix using filtered_idxSource
-            distances_class = Distances(subject=subj, hemi=hemi, matrix_dir=distance_matrix_path, csv_path=distance_matrix_file)
-            
-            if atlas == "benson":
-                distances_class.geodesic_dists(hemi=hemi,subject=subj, vertices=filtered_idxSource, source=source_visual_area,output_dir=distance_matrix_path)
-                distance_matrix = pd.read_csv(distance_matrix_file, index_col=0)
-                print(f"Distance Matrix Benson: {distance_matrix.shape}")
-            else: 
-                if filter_v1:
+                    labels_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.benson14_varea-0001.label"
+                    
+                if hemi == 'lh':
+                    if task == "RestingState":
+                        time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-{task}_run-{run}_hemi-lh_desc-avg_bold_GM.npy"
+                    else:
+                        time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-{task}_hemi-lh_desc-avg_bold_GM.npy"
+                else:
+                    if task == "RestingState":
+                        time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-{task}_run-{run}_hemi-rh_desc-avg_bold_GM.npy"
+                    else:
+                        time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-{task}_hemi-rh_desc-avg_bold_GM.npy"
+    
+    
+                # Outputs
+                if task == "RestingState":
+                    output_dir = f"{MAIN_PATH}/CFM/{subj}/{ses}/{atlas}/{task}/run-{run}/{denoising}/GM"
+                else:
+                    output_dir = f"{MAIN_PATH}/CFM/{subj}/{ses}/{atlas}/{task}/{denoising}/GM"
+                # output_dir = f"{MAIN_PATH}/CFM/{subj}/{ses}/{atlas}/{task}/{denoising}/GM" 
+                os.makedirs(output_dir, exist_ok=True)
+                # target_name_idx = np.where(str(target_visual_area) == rois_list[1])
+                # target_name = rois_list[0][target_name_idx][0]
+                target_name = None
+                for name, label in rois_list:
+                    if isinstance(label, (tuple, list)):
+                        if target_visual_area in label:
+                            target_name = name
+                            break
+                    else:
+                        if target_visual_area == label:
+                            target_name = name
+                            break
+                
+                if target_name is None:
+                    raise ValueError(f"Target visual area {target_visual_area} not found in rois_list!")
+
+                
+                distance_matrix_path = f"{output_dir}/Distance_Matrices"
+                os.makedirs(distance_matrix_path, exist_ok=True)
+                distance_matrix_file = f"{distance_matrix_path}/{subj}_distance_{hemi}_{source_visual_area}.csv"
+                output_dir_itertarget = f"{output_dir}/{hemi}/{target_name}-{source_name}"
+                os.makedirs(output_dir_itertarget, exist_ok=True)
+                best_fit_output = f"{output_dir_itertarget}/best_fits.csv"
+                individual_output_dir = f"{output_dir_itertarget}/individual_fits"
+                os.makedirs(individual_output_dir, exist_ok=True)
+    
+                # 1. Load Vertices
+                # idxTarget = Vertex.load_vertices(labels_path, target_visual_area, atlas, load_one)
+                # print(f"Target Area: {idxTarget.shape}")
+                
+                # target_areas = rois_list[1][np.where(rois_list[0] == target_name)[0][0]]
+                # Find target area code(s)
+                # --- Lookup Target Name and Area Codes ---
+                target_name = None
+                target_areas = None
+                for name, label in rois_list:
+                    if isinstance(label, (tuple, list)):
+                        if target_visual_area in label:
+                            target_name = name
+                            target_areas = label
+                            break
+                    else:
+                        if target_visual_area == label:
+                            target_name = name
+                            target_areas = label
+                            break
+                
+                if target_name is None:
+                    raise ValueError(f"Target visual area {target_visual_area} not found in rois_list!")
+                
+                # --- Load Target Vertices ---
+                if isinstance(target_areas, (tuple, list)):
+                    idxTarget = []
+                    for area in target_areas:
+                        idxTarget.extend(Vertex.load_vertices(labels_path, area, atlas, load_one))
+                else:
+                    idxTarget = Vertex.load_vertices(labels_path, target_areas, atlas, load_one)
+                
+                print(f"Target Area {target_name}: {len(idxTarget)} vertices")
+                
+                # --- Load Source Vertices ---
+                idxSource = Vertex.load_vertices(labels_path, source_visual_area, atlas, load_one)
+                print(f"Source Area: {idxSource.shape}")
+
+                # For idxSource (V1) you can still load normally
+                idxSource = Vertex.load_vertices(labels_path, source_visual_area, atlas, load_one)
+                print(f"Source Area: {idxSource.shape}")
+
+                idxSource = Vertex.load_vertices(labels_path, source_visual_area, atlas, load_one)
+                print(f"Source Area: {idxSource.shape}")
+    
+                # 1a. Apply Eccentricity Filtering Based on Atlas
+                if atlas == "benson":
+                    if ecc == "all":
+                        labels_eccen_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.benson14_eccen-0001.label"
+                        ecc_dict = source_eccentricity_benson(subj=subj, hemi=hemi, main_path=MAIN_PATH, atlas=atlas,
+                        denoising=denoising, task=task, freesurfer_path=f"{MAIN_PATH}/freesurfer",label_file=labels_path)
+                    else: 
+                        ecc_dict = source_eccentricity(subj=subj, hemi=hemi, main_path=MAIN_PATH, atlas=atlas,
+                        denoising=denoising, task=task, freesurfer_path=f"{MAIN_PATH}/freesurfer",label_file=labels_path)
+                    
+                    idxTarget = [v for v in idxTarget if v.index in ecc_dict and ecc_dict[v.index] < 25]
+                    idxSource = [v for v in idxSource if v.index in ecc_dict and ecc_dict[v.index] < 25]
+                    print(f"Target Area: {len(idxTarget)} vertices")
+                    print(f"Source Area: {len(idxSource)} vertices")
+                    filtered_idxSource = idxSource  
+                    filtered_idxTarget = idxTarget  
+                else:
+                    if filter_v1:
+                        ecc_dict = source_eccentricity(subj=subj, hemi=hemi, main_path=MAIN_PATH, atlas=atlas,
+                            denoising=denoising, task=task, freesurfer_path=f"{MAIN_PATH}/freesurfer")
+                        filtered_idxSource = [v for v in idxSource if v.index in ecc_dict and 0.5 <= ecc_dict[v.index] <= 25]
+                        filtered_idxTarget = idxTarget
+                    else:
+                        filtered_idxSource = idxSource
+                        filtered_idxTarget = idxTarget
+                
+                # 2. Calculate Distance Matrix using filtered_idxSource
+                distances_class = Distances(subject=subj, hemi=hemi, matrix_dir=distance_matrix_path, csv_path=distance_matrix_file)
+                
+                if atlas == "benson":
                     distances_class.geodesic_dists(hemi=hemi,subject=subj, vertices=filtered_idxSource, source=source_visual_area,output_dir=distance_matrix_path)
                     distance_matrix = pd.read_csv(distance_matrix_file, index_col=0)
-                    print(f"Distance Matrix Manual Filtered: {distance_matrix.shape}")
+                    print(f"Distance Matrix Benson: {distance_matrix.shape}")
                 else: 
-                    distances_class.geodesic_dists(hemi=hemi,subject=subj, vertices=idxSource, source=source_visual_area,output_dir=distance_matrix_path)
-                    distance_matrix = pd.read_csv(distance_matrix_file, index_col=0)
-                    print(f"Distance Matrix Manual Non Filtered: {distance_matrix.shape}")
-            
-            # distance_matrix = pd.read_csv(distance_matrix_file, index_col=0)
-            distance_matrix.index = distance_matrix.index.astype(int)
-            distance_matrix.columns = distance_matrix.columns.astype(int)
-
-            # 3. Load Time Series Data 
-            target_time_course_obj = TimeCourse(time_course_file=time_series_path, vertices=filtered_idxTarget, cutoff_volumes=cutoff_volumes)
-            source_time_course_obj = TimeCourse(time_course_file=time_series_path, vertices=filtered_idxSource, cutoff_volumes=cutoff_volumes)
-            z_scored_target = target_time_course_obj.z_score(method=processing_method)
-            z_scored_source = source_time_course_obj.z_score(method=processing_method)
-
-            # 4. Define Sigma Range 
-            connective_field = ConnectiveField(center_vertex=None, vertex=None)
-            sigma_values = connective_field.define_size_range(start=1, stop=-1.25, num=50)
-
-            # 5. Run Iterative Fit 
-            Parallel(n_jobs=ncores)(
-                delayed(connective_field.iterative_fit_target)(
-                    target_vertex=target_vertex,
-                    target_time_series=z_scored_target,
-                    source_vertices=filtered_idxSource,
-                    source_time_series=z_scored_source,
-                    distance_matrix=distance_matrix,
-                    sigma_values=sigma_values,
-                    best_fit_output=best_fit_output,
-                    individual_output_dir=individual_output_dir,
-                    plot_dir=individual_output_dir)
-                for target_vertex in idxTarget)
-
-            print(f"Completed: {atlas}, {task}, {denoising}, {hemi}, {target_name}")
-
+                    if filter_v1:
+                        distances_class.geodesic_dists(hemi=hemi,subject=subj, vertices=filtered_idxSource, source=source_visual_area,output_dir=distance_matrix_path)
+                        distance_matrix = pd.read_csv(distance_matrix_file, index_col=0)
+                        print(f"Distance Matrix Manual Filtered: {distance_matrix.shape}")
+                    else: 
+                        distances_class.geodesic_dists(hemi=hemi,subject=subj, vertices=idxSource, source=source_visual_area,output_dir=distance_matrix_path)
+                        distance_matrix = pd.read_csv(distance_matrix_file, index_col=0)
+                        print(f"Distance Matrix Manual Non Filtered: {distance_matrix.shape}")
+                
+                # distance_matrix = pd.read_csv(distance_matrix_file, index_col=0)
+                distance_matrix.index = distance_matrix.index.astype(int)
+                distance_matrix.columns = distance_matrix.columns.astype(int)
+    
+                # 3. Load Time Series Data 
+                target_time_course_obj = TimeCourse(time_course_file=time_series_path, vertices=filtered_idxTarget, cutoff_volumes=cutoff_volumes)
+                source_time_course_obj = TimeCourse(time_course_file=time_series_path, vertices=filtered_idxSource, cutoff_volumes=cutoff_volumes)
+                z_scored_target = target_time_course_obj.z_score(method=processing_method)
+                z_scored_source = source_time_course_obj.z_score(method=processing_method)
+    
+                # 4. Define Sigma Range 
+                connective_field = ConnectiveField(center_vertex=None, vertex=None)
+                sigma_values = connective_field.define_size_range(start=1, stop=-1.25, num=50)
+    
+                # 5. Run Iterative Fit 
+                Parallel(n_jobs=ncores)(
+                    delayed(connective_field.iterative_fit_target)(
+                        target_vertex=target_vertex,
+                        target_time_series=z_scored_target,
+                        source_vertices=filtered_idxSource,
+                        source_time_series=z_scored_source,
+                        distance_matrix=distance_matrix,
+                        sigma_values=sigma_values,
+                        best_fit_output=best_fit_output,
+                        individual_output_dir=individual_output_dir,
+                        plot_dir=individual_output_dir)
+                    for target_vertex in idxTarget)
+    
+                print(f"Completed: {atlas}, {task}, {denoising}, {hemi}, {target_name}")
+    
     elapsed_time = (time.time() - start_time) / 60
     print(f"\nAll processing completed in {elapsed_time:.2f} minutes.")
-
-

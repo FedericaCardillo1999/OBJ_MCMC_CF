@@ -7,7 +7,7 @@ import os
 
 n_iter = 17500 # Number of iterations or how many times the MCMC algorithm will be executed  
 TR =1.5 # Repetition Time 
-rMin = 0.01 # How small is the allowable minimum radius for the CF modeling
+rMin = 0.05 # How small is the allowable minimum radius for the CF modeling
 radius = 10.5
 betaBool = True # Is the Beta parameter being used?
 burnIn = False # Is the burn-in executed?
