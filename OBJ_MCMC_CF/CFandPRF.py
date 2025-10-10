@@ -1,127 +1,99 @@
-import os
-import numpy as np
-import pickle
-from nibabel.freesurfer import read_morph_data
-import pandas as pd 
+from imports import *
 
+# pRF model 
 class PRFModel:
     def __init__(self, r2, size, ecc, angle):
-        self.r2 = r2
-        self.size = size
-        self.ecc = ecc
-        self.angle = angle
+        self.r2 = r2 # r2: model fit quality
+        self.size = size # size: size of the receptive field in degrees of visual angle
+        self.ecc = ecc # ecc: eccentricity (distance from the fovea, in degrees)
+        self.angle = angle # angle: polar angle (direction in the visual field, in radians or degrees)
 
-def pickle_file(filepath):
-    if not os.path.isfile(filepath):
-        raise FileNotFoundError(f"File not found: {filepath}")
-    with open(filepath, 'rb') as file:
-        return pickle.load(file)
+def read_benson_label_vertices(label_file):
+    # Load the label file into a pandas DataFrame
+    # sep=r"\s+" means split by any amount of whitespace
+    # skiprows=2 skips the first 2 lines (header info in FreeSurfer label files)
+    df = pd.read_csv(label_file, sep=r"\s+", skiprows=2, header=None)
+    # Add column names to make it easier to read
+    df.columns = ["vertex", "x", "y", "z", "value"]
+    return df["vertex"].astype(int).to_numpy()
+
+def read_benson_eccentricity(label_file):
+    df = pd.read_csv(label_file, sep=r"\s+", skiprows=2, header=None)
+    df.columns = ["vertex", "x", "y", "z", "eccentricity"]
+    vertices = df["vertex"].astype(int).to_numpy()
+    # Extract arrays of vertex indices and eccentricities
+    ecc = df["eccentricity"].to_numpy()
+    return dict(zip(vertices, ecc))
 
 def load_prf(subj, main_path, atlas, denoising, task):
-    if task == 'RestingState':
-        task_for_file = 'RET'
-    else:
-        task_for_file = task
+    task_for_file = "RET" if task == "RestingState" else task
 
-    tried_paths = []
-    for ses in ['ses-01', 'ses-02']:
-        filepath = os.path.join(
-            main_path,
-            f'pRFM/{subj}/{ses}/{denoising}/model-{atlas}-nelder-mead-GM_desc-prf_params_{task_for_file}.pkl'
-        )
-        tried_paths.append(filepath)
+    for ses in ["ses-01", "ses-02", "ses-03"]:
+        # Build the path to the pickle file
+        filepath = os.path.join(main_path, f"pRFM/{subj}/{ses}/{denoising}/model-{atlas}-nelder-mead-GM_desc-prf_params_{task_for_file}.pkl")
         if os.path.exists(filepath):
-            with open(filepath, 'rb') as file:
-                pkl_data = pickle.load(file)
-            prf_params = pkl_data['model'].iterative_search_params
-            prf_voxels = np.where(pkl_data['rois_mask'] == 1)[0]
+            with open(filepath, "rb") as f:
+                pkl = pickle.load(f)
+            prf_params = pkl["model"].iterative_search_params # Extract pRF parameters (shape: voxels x parameters)
+            prf_voxels = np.where(pkl["rois_mask"] == 1)[0] # Extract voxel indices where the ROI mask equals 1
             return prf_params, prf_voxels
 
-    print(f"Tried paths for {subj}:")
-    for path in tried_paths:
-        print(f" - {path}")
-    raise FileNotFoundError(f"pRF .pkl file not found for subject {subj} in any session.")
+    raise FileNotFoundError(f"No pRF file found here {main_path}/pRFM/{subj}/<ses>/{denoising}/")
 
 def filter_prf(prf_params, prf_voxels):
-    return PRFModel(
-        r2=prf_params[:, 7],
-        size=prf_params[:, 2],
-        ecc=np.sqrt(prf_params[:, 1]**2 + prf_params[:, 0]**2),
-        angle=np.arctan2(prf_params[:, 1], prf_params[:, 0])
-    )
+    x = prf_params[:, 0] # Extract x-coordinate of receptive field centers 
+    y = prf_params[:, 1] # Extract y-coordinate of receptive field centers
+    size = prf_params[:, 2]
+    r2 = prf_params[:, 7]
+    ecc = np.sqrt(x**2 + y**2) # Compute eccenricity
+    angle = np.arctan2(y, x) # Compute polar angle (
+    return PRFModel(r2=r2, size=size, ecc=ecc, angle=angle)
 
-
-def source_eccentricity(subj, hemi, main_path, atlas, denoising, task, freesurfer_path, label_file=None):
-    prf_params, prf_voxels = load_prf(subj, main_path, atlas, denoising, task)
-    prf_model = filter_prf(prf_params, prf_voxels)
-
-    lh_c = read_morph_data(os.path.join(freesurfer_path, subj, 'surf', 'lh.curv'))
-    numel_lh = lh_c.shape[0]
-
-    if hemi == 'rh':
-        adjusted_voxels = prf_voxels[prf_voxels >= numel_lh] - numel_lh
-        ecc = prf_model.ecc[prf_voxels >= numel_lh]
+def adjusting_verticesandecc(prf_voxels, prf_model, freesurfer_path, subj, hemi):
+    lh_curv_path = os.path.join(freesurfer_path, subj, "surf", "lh.curv") # Path to left hemisphere curvature file
+    lh_curv = read_morph_data(lh_curv_path) # Read number of vertices in the left hemisphere 
+    n_lh = lh_curv.shape[0]
+    # For right hemisphere: voxel indices are offset by n_lh so subtract n_lh to get RH vertex indices
+    if hemi == "rh":
+        mask = prf_voxels >= n_lh
+        adjusted_vertices = prf_voxels[mask] - n_lh
+        ecc_values = prf_model.ecc[mask]
     else:
-        adjusted_voxels = prf_voxels[prf_voxels < numel_lh]
-        ecc = prf_model.ecc[prf_voxels < numel_lh]
+        mask = prf_voxels < n_lh # For left hemisphere: use indices directly (less than n_lh)
+        adjusted_vertices = prf_voxels[mask]
+        ecc_values = prf_model.ecc[mask]
 
-    ecc_dict = dict(zip(adjusted_voxels, ecc))
+    return adjusted_vertices, ecc_values
 
-    if atlas == "benson":
+def source_eccentricity(subj, hemi, main_path, atlas, denoising, task, freesurfer_path, label_file=None, benson_fallback_ecc_max=None):
+    # Try to load eccentricities from pRF (preferred path)
+    prf_loaded = False
+    try:
+        prf_params, prf_voxels = load_prf(subj, main_path, atlas, denoising, task)
+        prf_model = filter_prf(prf_params, prf_voxels)
+        vertices, ecc = adjusting_verticesandecc(prf_voxels, prf_model, freesurfer_path, subj, hemi)
+        ecc_dict = dict(zip(vertices, ecc))  # {vertex: ecc}
+        prf_loaded = True
+    except FileNotFoundError as e:
+        # If pRF is missing and atlas isn't Benson, that's an error
+        if atlas != "benson":
+            raise
+        ecc_dict = {} # If atlas is Benson try the fallback below
+
+    # Benson fallback: if no pRF, use label-derived eccentricities up to a cutoff
+    if atlas == "benson" and not prf_loaded:
         if label_file is None:
-            raise ValueError("Label file must be provided for Benson atlas.")
-        
-        df = pd.read_csv(label_file, sep='\s+', skiprows=2, header=None)
-        df.columns = ['vertex', 'x', 'y', 'z', 'value']
-        benson_vertices = df['vertex'].values
+            raise ValueError("Benson fallback requires an eccentricity label file")
+        label_ecc = read_benson_eccentricity(label_file)
+        ecc_dict = {v: e for v, e in label_ecc.items() if e <= benson_fallback_ecc_max}
+        return ecc_dict
 
-        matching_vertices = [v for v in benson_vertices if v in ecc_dict]
-        print(f"Total Benson vertices: {len(benson_vertices)}")
-        print(f"Vertices matching pRF data: {len(matching_vertices)}")
-        print(f"Example: {[(v, round(ecc_dict[v], 2)) for v in matching_vertices[:5]]}")
+    # if pRF loaded and a label file is available, compute overlap (no print here)
+    if atlas == "benson" and prf_loaded and label_file is not None:
+        try:
+            benson_vertices = read_benson_label_vertices(label_file)
+            matching = [v for v in benson_vertices if v in ecc_dict]
+        except FileNotFoundError:
+            pass
 
     return ecc_dict
-
-
-def source_eccentricity_benson(subj, hemi, main_path, atlas, denoising, task, freesurfer_path, label_file):
-    """
-    Load eccentricity from pRF .pkl file, filter to vertices from the label file (Benson),
-    and return only those with eccentricity ≤ 10 degrees.
-    Returns a dictionary {vertex_index: eccentricity}.
-    """
-    # Step 1: Load pRF fits from the .pkl
-    prf_params, prf_voxels = load_prf(subj, main_path, atlas, denoising, task)
-    prf_model = filter_prf(prf_params, prf_voxels)
-
-    lh_c = read_morph_data(os.path.join(freesurfer_path, subj, 'surf', 'lh.curv'))
-    numel_lh = lh_c.shape[0]
-
-    # Adjust voxel indices for hemisphere
-    if hemi == 'rh':
-        adjusted_voxels = prf_voxels[prf_voxels >= numel_lh] - numel_lh
-        ecc = prf_model.ecc[prf_voxels >= numel_lh]
-    else:
-        adjusted_voxels = prf_voxels[prf_voxels < numel_lh]
-        ecc = prf_model.ecc[prf_voxels < numel_lh]
-
-    # Build full eccentricity dictionary from .pkl
-    ecc_dict = dict(zip(adjusted_voxels, ecc))
-
-    # Step 2: Load label vertices (Benson ROI mask)
-    if label_file is None:
-        raise ValueError("Label file must be provided for Benson atlas.")
-
-    df = pd.read_csv(label_file, sep='\s+', skiprows=2, header=None)
-    df.columns = ['vertex', 'x', 'y', 'z', 'value']
-    benson_vertices = df['vertex'].values
-
-    # Step 3: Filter ecc_dict to only vertices in the label, and ecc ≤ 10
-    filtered_dict = {v: ecc_dict[v] for v in benson_vertices if v in ecc_dict and ecc_dict[v] <= 10}
-
-    print(f"Total Benson label vertices: {len(benson_vertices)}")
-    print(f"Matching vertices with pRF eccentricity ≤ 10: {len(filtered_dict)}")
-    if filtered_dict:
-        sample = list(filtered_dict.items())[:5]
-        print("Example vertex/eccentricity:", [(v, round(e, 2)) for v, e in sample])
-
-    return filtered_dict
