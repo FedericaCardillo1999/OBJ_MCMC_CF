@@ -18,6 +18,9 @@ denoising_methods = ['nordic']  # Denoising methods to use;
 has_multiple_runs = False
 runs = [1, 2]  # Number of runs from the Resting State scan to process, in case one is eye opens and other one is eyes closed
 benson_max = 25.0  # Maximum Benson eccentricity value to include when using the Label Benson values
+mode = "bayesian" # "standard" or "bayesian"
+
+
 if project == 'OVGU':
     benson_max_stimulus = 10.0  # Maximum Benson eccentricity value to include when using the pRF Benson values
 else: 

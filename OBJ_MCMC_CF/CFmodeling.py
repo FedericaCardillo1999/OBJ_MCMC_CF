@@ -250,44 +250,61 @@ class ConnectiveField:
         self.variance_explained_coarse = ve_for_best
         return best_sigma_coarse, ve_for_best, best_prediction
     
-    plots_made = 0  # class-level counter to limit how many plots we save per run
-    def iterative_fit_target(self, target_vertex: Vertex, target_time_series, source_vertices: list[Vertex], source_time_series: dict, distance_matrix: pd.DataFrame, sigma_values: list, best_fit_output: str):
+    def iterative_fit_target(self, target_vertex: Vertex, target_time_series, source_vertices: list[Vertex], source_time_series: dict, distance_matrix: pd.DataFrame, sigma_values: list, best_fit_output: str, mode: str = "bayesian"):
         # Grab observed signal for the target vertex (what we want to predict)
         self.observed_time_series = target_time_series[target_vertex.index]
-        results = []
-        best_fit_temp = None
-        best_coarse_ve = -np.inf
+        
+        if mode == "standard": 
+            results = []
+            best_fit_temp = None
+            best_coarse_ve = -np.inf
+            # Iterate through all source vertices: coarse search
+            for source_vertex in source_vertices:
+                self.center_vertex = source_vertex
+                sigma_coarse, ve_coarse, prediction_coarse = self.optimize_parameters(self.observed_time_series, source_time_series, distance_matrix, sigma_values, source_vertices)
+                results.append({"Target Vertex Index": target_vertex.index, "Source Vertex Index": source_vertex.index, "CF Sigma Coarse": sigma_coarse, "Variance Explained Coarse": ve_coarse})
+                if ve_coarse > best_coarse_ve:
+                    best_coarse_ve = ve_coarse
+                    best_fit_temp = {"source_vertex": source_vertex, "sigma_coarse": sigma_coarse, "ve_coarse": ve_coarse, "prediction_coarse": prediction_coarse}
 
-        # Iterate through all source vertices: coarse search
-        for source_vertex in source_vertices:
-            self.center_vertex = source_vertex
-            sigma_coarse, ve_coarse, prediction_coarse = self.optimize_parameters(self.observed_time_series, source_time_series, distance_matrix, sigma_values, source_vertices)
-            results.append({"Target Vertex Index": target_vertex.index, "Source Vertex Index": source_vertex.index, "CF Sigma Coarse": sigma_coarse, "Variance Explained Coarse": ve_coarse})
-            if ve_coarse > best_coarse_ve:
-                best_coarse_ve = ve_coarse
-                best_fit_temp = {"source_vertex": source_vertex, "sigma_coarse": sigma_coarse, "ve_coarse": ve_coarse, "prediction_coarse": prediction_coarse}
+            if best_fit_temp is None:
+                print(f"No valid fit found for target vertex: {target_vertex}")
+                return
 
-        if best_fit_temp is None:
-            print(f"No valid fit found for target vertex: {target_vertex}")
-            return
+            # Finer search around the best coarse source vertex
+            self.center_vertex = best_fit_temp["source_vertex"]
+            row_data_series = distance_matrix.loc[:, self.center_vertex.index]          # distances to chosen source
+            filtered_indices = list(source_time_series.keys())                          # same order for distances + series
+            filtered_row_data = row_data_series.loc[filtered_indices].to_numpy().reshape(-1, 1)
 
-        # Finer search around the best coarse source vertex
-        self.center_vertex = best_fit_temp["source_vertex"]
-        row_data_series = distance_matrix.loc[:, self.center_vertex.index]          # distances to chosen source
-        filtered_indices = list(source_time_series.keys())                          # same order for distances + series
-        filtered_row_data = row_data_series.loc[filtered_indices].to_numpy().reshape(-1, 1)
+            sigma_finer, prediction_finer, ve_finer = self.finer_search_sigma(self.observed_time_series, source_time_series, filtered_row_data, best_fit_temp["sigma_coarse"])
 
-        sigma_finer, prediction_finer, ve_finer = self.finer_search_sigma(self.observed_time_series, source_time_series, filtered_row_data, best_fit_temp["sigma_coarse"])
+            # Store final best-fit params
+            self.sigma = sigma_finer
+            self.variance_explained = ve_finer
+            self.predicted_time_course = prediction_finer
+            self.best_source_index = self.center_vertex.index
 
-        # Store final best-fit params
-        self.sigma = sigma_finer
-        self.variance_explained = ve_finer
-        self.predicted_time_course = prediction_finer
-        self.best_source_index = self.center_vertex.index
-
-        # Save one-row CSV with best fit
-        best_fit_df = pd.DataFrame([{"Target Vertex Index": target_vertex.index, "Source Vertex Index": self.best_source_index, "CF Sigma Coarse": best_fit_temp["sigma_coarse"], "CF Sigma": sigma_finer,"Variance Explained Coarse": best_fit_temp["ve_coarse"],"Variance Explained": ve_finer}])
-        best_fit_df.to_csv(best_fit_output, mode="a", index=False, header=not os.path.exists(best_fit_output))
+            # Save one-row CSV with best fit
+            best_fit_df = pd.DataFrame([{"Target Vertex Index": target_vertex.index, "Source Vertex Index": self.best_source_index, "CF Sigma Coarse": best_fit_temp["sigma_coarse"], "CF Sigma": sigma_finer,"Variance Explained Coarse": best_fit_temp["ve_coarse"],"Variance Explained": ve_finer}])
+            best_fit_df.to_csv(best_fit_output, mode="a", index=False, header=not os.path.exists(best_fit_output))
+        
+        elif mode == "bayesian":
+            source_idx = [v.index for v in source_vertices]
+            
+            source_matrix = np.stack([source_time_series[i] for i in source_idx], axis=1)
+            # Only one column: the target vertex
+            target_matrix = self.observed_time_series[:, None]
+            bestFit, postDistB, logLikelihoodB, priorDistB, posteriorB, posteriorLatentB = MCMC_CF_cluster(idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix)
+            start_center = getattr(self, "best_source_index", None)
+            # bestFit, postDistB, logLikelihoodB, priorDistB, posteriorB, posteriorLatentB = MCMC_CF_cluster(idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix, start_center=start_center)
+            # Save the summary of the best fit (first row of bestFit corresponds to this target)
+            # Save the summary of the best fit (first row of bestFit corresponds to this target)
+            target_idx = [v.index for v in filtered_idxTarget]
+            # one row for this target
+            row = {"Target Vertex Index": int(target_vertex.index),  "Source Vertex Index": int(bestFit[0, 2]), "CF Sigma Bayesian": float(bestFit[0, 0]), "Variance Explained Bayesian": float(bestFit[0, 3]),"Beta Bayesian": float(bestFit[0, 1]),   }
+            # Optionally return any posterior objects if you want to save them later
+            return {"mode": "bayesian", "row": row}
 
     def finer_search_sigma(self, observed: np.array, source_time_series: dict, distances: np.array, initial_sigma: float):
         # Objective function: negative variance explained
@@ -304,8 +321,8 @@ class ConnectiveField:
 
         # Run scalar optimization with bounds: sigma must stay between 0.05 and 10.5
         # "bounded" forces these limits
-        #res = minimize_scalar(neg_ve, bounds=(0.05, 10.5), method='bounded')
-        #best_sigma = float(res.x)
+        # res = minimize_scalar(neg_ve, bounds=(0.05, 10.5), method='bounded')
+        # best_sigma = float(res.x)
         # start near the coarse result and dont fo too far
         # set a simple local window around the coarse fit
         window = 3.0  # the larger the more free to go far it is
@@ -448,14 +465,20 @@ if __name__ == "__main__":
                 # STEP 7: Run the connective field modeling
                 connective_field = ConnectiveField(center_vertex=None, vertex=None)
                 sigma_values = connective_field.define_size_range(start=1, stop=-1.25, num=50)
-
-                Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output) for target_vertex in idxTarget)
-         
+                
+                Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "standard") for target_vertex in idxTarget)
+                
+                results = Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "bayesian") for target_vertex in idxTarget)
+                bayes_rows = [r["row"] for r in results if isinstance(r, dict) and r.get("mode") == "bayesian"]
+                if bayes_rows:
+                    df_bayes = pd.DataFrame(bayes_rows)
+                    bayes_csv = os.path.join(output_dir_itertarget, "bestfit_bayesian.csv")
+                    df_bayes.to_csv(bayes_csv, index=False)  # single write, safe & fast
         print(f"\nConnective Field Modeling Completed")
 
     # Post Processing
-    project_dir = Path(__file__).parent
-    subprocess.run([sys.executable, str(project_dir  / "clean_bestfits.py"), subj], check=True, cwd=str(project_dir))
-    subprocess.run([sys.executable, str(project_dir  / "visualfieldmaps.py"), subj], check=True, cwd=str(project_dir))
-    subprocess.run([sys.executable, str(project_dir  / "cumulativedistribution.py"), subj], check=True, cwd=str(project_dir))
-    subprocess.run([sys.executable, str(project_dir  / "dataquality.py"), subj], check=True, cwd=str(project_dir))
+    #project_dir = Path(__file__).parent
+    #subprocess.run([sys.executable, str(project_dir  / "clean_bestfits.py"), subj], check=True, cwd=str(project_dir))
+    #subprocess.run([sys.executable, str(project_dir  / "visualfieldmaps.py"), subj], check=True, cwd=str(project_dir))
+    #subprocess.run([sys.executable, str(project_dir  / "cumulativedistribution.py"), subj], check=True, cwd=str(project_dir))
+    #subprocess.run([sys.executable, str(project_dir  / "dataquality.py"), subj], check=True, cwd=str(project_dir))

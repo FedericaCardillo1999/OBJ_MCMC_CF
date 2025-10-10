@@ -31,3 +31,4 @@ from typing import Dict, List, Tuple, Optional
 from nibabel.freesurfer.io import read_morph_data, write_morph_data
 from CFandPRF import source_eccentricity, read_benson_eccentricity
 from config import (MAIN_PATH, hemispheres, atlases, tasks, denoising_methods, target_visual_areas, runs, rois_list, ses, source_visual_area, load_one, benson_max_stimulus, benson_max, filter_v1, cutoff_volumes, processing_method, benson_mode, ncores, has_multiple_runs)
+from MCMC_CF_cluster import MCMC_CF_cluster
