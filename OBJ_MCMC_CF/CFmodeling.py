@@ -290,21 +290,38 @@ class ConnectiveField:
             best_fit_df.to_csv(best_fit_output, mode="a", index=False, header=not os.path.exists(best_fit_output))
         
         elif mode == "bayesian":
-            source_idx = [v.index for v in source_vertices]
-            
-            source_matrix = np.stack([source_time_series[i] for i in source_idx], axis=1)
-            # Only one column: the target vertex
-            target_matrix = self.observed_time_series[:, None]
-            bestFit, postDistB, logLikelihoodB, priorDistB, posteriorB, posteriorLatentB = MCMC_CF_cluster(idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix)
-            start_center = getattr(self, "best_source_index", None)
-            # bestFit, postDistB, logLikelihoodB, priorDistB, posteriorB, posteriorLatentB = MCMC_CF_cluster(idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix, start_center=start_center)
-            # Save the summary of the best fit (first row of bestFit corresponds to this target)
-            # Save the summary of the best fit (first row of bestFit corresponds to this target)
-            target_idx = [v.index for v in filtered_idxTarget]
-            # one row for this target
-            row = {"Target Vertex Index": int(target_vertex.index),  "Source Vertex Index": int(bestFit[0, 2]), "CF Sigma Bayesian": float(bestFit[0, 0]), "Variance Explained Bayesian": float(bestFit[0, 3]),"Beta Bayesian": float(bestFit[0, 1]),   }
-            # Optionally return any posterior objects if you want to save them later
-            return {"mode": "bayesian", "row": row}
+                    # Build dict with only filtered sources
+                    source_idx = [v.index for v in source_vertices]  
+                    available_sources = set(source_time_series.keys())
+                    valid_source_idx = [i for i in source_idx if i in available_sources]
+                    import numpy as np 
+                    source_matrix = np.stack([source_time_series[i] for i in valid_source_idx], axis=1)
+                    target_matrix = self.observed_time_series[:, None]  # observed signal
+
+                    # Test: seed the bayesian code to start with the standard version 
+                    #start_center = None
+                    #if os.path.exists(best_fit_output):
+                    #    bestfit_df = pd.read_csv(best_fit_output)
+                    #    if target_vertex.index in bestfit_df["Target Vertex Index"].values:
+                    #        start_center = int(bestfit_df.loc[bestfit_df["Target Vertex Index"] == target_vertex.index, "Source Vertex Index"].values[0])
+
+                    # MCMC cluster
+                    (bestFit, postDistB, logLikelihoodB, priorDistB, posteriorB, posteriorLatentB, ve, posterior, posteriorLatent, postDist, loglikelihood, ve_real) = MCMC_CF_cluster( idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix)
+                    
+                    # Save the full iterations for debugging 
+                    n_iter = ve.shape[0]
+                    rows = []
+                    for j in range(n_iter):
+                        rows.append({"TargetVertexIndex": int(target_vertex.index),"Iteration": j,"SourceVertexIndex": int(posterior[2, j]),"Sigma": float(posterior[0, j]),"Beta": float(posteriorLatent[1, j]),"ResidualVariance": float(ve[j]),"VE": float(ve_real[j]), "Posterior": float(postDist[j]),"LogLikelihood": float(loglikelihood[j])})
+                    df_all = pd.DataFrame(rows)
+                    #chain_csv = os.path.join(output_dir_itertarget, f"iterations_{target_vertex.index}.csv")
+                    #df_all.to_csv(chain_csv, index=False)
+
+                    # Save results 
+                    row = {"Target Vertex Index": int(target_vertex.index),"Source Vertex Index": int(bestFit[2]),"CF Sigma Bayesian": float(bestFit[0]), "ResidualVariance": float(bestFit[3]),"VE": float(bestFit[3]),"Beta Bayesian": float(bestFit[1])}
+                    bestfit_csv = os.path.join(output_dir_itertarget, "bestfit_bayesian_T1.csv")
+                    pd.DataFrame([row]).to_csv(bestfit_csv, mode="a", index=False, header=not os.path.exists(bestfit_csv))
+                    return {"mode": "bayesian","row": row,"all_iters": df_all,"source_matrix": source_matrix,"valid_source_idx": valid_source_idx}
 
     def finer_search_sigma(self, observed: np.array, source_time_series: dict, distances: np.array, initial_sigma: float):
         # Objective function: negative variance explained
@@ -323,14 +340,8 @@ class ConnectiveField:
         # "bounded" forces these limits
         # res = minimize_scalar(neg_ve, bounds=(0.05, 10.5), method='bounded')
         # best_sigma = float(res.x)
-        # start near the coarse result and dont fo too far
-        # set a simple local window around the coarse fit
-        window = 3.0  # the larger the more free to go far it is
-        lo = max(0.05, float(initial_sigma) / window)
-        hi = min(10.5, float(initial_sigma) * window)
-
         # run a bounded scalar search inside this local window
-        res = minimize_scalar(neg_ve, bounds=(lo, hi), method='bounded')
+        res = minimize_scalar(neg_ve, bounds=(0.05, 10.5), method='bounded')
         best_sigma = float(res.x)
 
         # Evaluate the coarse sigma itself and keep whichever is better
@@ -353,8 +364,6 @@ class ConnectiveField:
         prediction = np.dot(time_series_matrix, weights)
         variance_explained = self.evaluate_fit(observed, prediction[:, np.newaxis])[0] # Compute variance explained for this prediction
         return best_sigma, prediction, variance_explained
-
-#### TESTING FOR MULTIPLE CONNECTIVE FIELD CENTERS
 
 # Main Script 
 if __name__ == "__main__":
@@ -459,20 +468,26 @@ if __name__ == "__main__":
                 # STEP 6: extract the preprocessed time series 
                 target_time_course_obj = TimeCourse(time_course_file=time_series_path, vertices=filtered_idxTarget, cutoff_volumes=cutoff_volumes)
                 source_time_course_obj = TimeCourse(time_course_file=time_series_path, vertices=filtered_idxSource, cutoff_volumes=cutoff_volumes)
-                z_scored_target = target_time_course_obj.z_score(method=processing_method)
-                z_scored_source = source_time_course_obj.z_score(method=processing_method)
-
-                # STEP 7: Run the connective field modeling
+                
+                from config import mode
+                if mode == "standard": 
+                    z_scored_target = target_time_course_obj.z_score(method="zscore")
+                    z_scored_source = source_time_course_obj.z_score(method="zscore")
+                elif mode == "bayesian": 
+                    z_scored_target = target_time_course_obj.z_score(method="zscore")
+                    z_scored_source = source_time_course_obj.z_score(method="zscore")
+                
+                # STEP 7: Standard connective field modeling
                 connective_field = ConnectiveField(center_vertex=None, vertex=None)
                 sigma_values = connective_field.define_size_range(start=1, stop=-1.25, num=50)
-                
                 Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "standard") for target_vertex in idxTarget)
                 
-                results = Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "bayesian") for target_vertex in idxTarget)
+                # STEP 8: Bayesian connective field modeling
+                results = Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "bayesian") for target_vertex in idxTarget[:10])
                 bayes_rows = [r["row"] for r in results if isinstance(r, dict) and r.get("mode") == "bayesian"]
                 if bayes_rows:
                     df_bayes = pd.DataFrame(bayes_rows)
-                    bayes_csv = os.path.join(output_dir_itertarget, "bestfit_bayesian.csv")
+                    bayes_csv = os.path.join(output_dir_itertarget, "best_fits_bayesian.csv")
                     df_bayes.to_csv(bayes_csv, index=False)  # single write, safe & fast
         print(f"\nConnective Field Modeling Completed")
 
