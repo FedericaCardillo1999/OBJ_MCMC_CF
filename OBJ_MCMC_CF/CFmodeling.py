@@ -298,27 +298,18 @@ class ConnectiveField:
                     source_matrix = np.stack([source_time_series[i] for i in valid_source_idx], axis=1)
                     target_matrix = self.observed_time_series[:, None]  # observed signal
 
-                    # Test: seed the bayesian code to start with the standard version 
-                    #start_center = None
-                    #if os.path.exists(best_fit_output):
-                    #    bestfit_df = pd.read_csv(best_fit_output)
-                    #    if target_vertex.index in bestfit_df["Target Vertex Index"].values:
-                    #        start_center = int(bestfit_df.loc[bestfit_df["Target Vertex Index"] == target_vertex.index, "Source Vertex Index"].values[0])
-
                     # MCMC cluster
-                    (bestFit, postDistB, logLikelihoodB, priorDistB, posteriorB, posteriorLatentB, ve, posterior, posteriorLatent, postDist, loglikelihood, ve_real) = MCMC_CF_cluster( idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix)
-                    
+                    (bestFit, ve, posterior, posteriorLatent, postDist, loglikelihood) = MCMC_CF_cluster( idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix)
                     # Save the full iterations for debugging 
                     n_iter = ve.shape[0]
                     rows = []
                     for j in range(n_iter):
-                        rows.append({"TargetVertexIndex": int(target_vertex.index),"Iteration": j,"SourceVertexIndex": int(posterior[2, j]),"Sigma": float(posterior[0, j]),"Beta": float(posteriorLatent[1, j]),"ResidualVariance": float(ve[j]),"VE": float(ve_real[j]), "Posterior": float(postDist[j]),"LogLikelihood": float(loglikelihood[j])})
+                        rows.append({"TargetVertexIndex": int(target_vertex.index),"Iteration": j,"SourceVertexIndex": int(posterior[2, j]), "Sigma": float(posterior[0, j]),"Beta": float(posteriorLatent[1, j]),"Variance Explained": float(ve[j]), "Posterior": float(postDist[j]),"LogLikelihood": float(loglikelihood[j])})
                     df_all = pd.DataFrame(rows)
-                    #chain_csv = os.path.join(output_dir_itertarget, f"iterations_{target_vertex.index}.csv")
-                    #df_all.to_csv(chain_csv, index=False)
-
+                    # chain_csv = os.path.join(output_dir_itertarget, f"iterations_{target_vertex.index}.csv")
+                    # df_all.to_csv(chain_csv, index=False)
                     # Save results 
-                    row = {"Target Vertex Index": int(target_vertex.index),"Source Vertex Index": int(bestFit[2]),"CF Sigma Bayesian": float(bestFit[0]), "ResidualVariance": float(bestFit[3]),"VE": float(bestFit[3]),"Beta Bayesian": float(bestFit[1])}
+                    row = {"Target Vertex Index": int(target_vertex.index),"Source Vertex Index": int(bestFit[2]),"CF Sigma Bayesian": float(bestFit[0]), "Variance Explained": float(bestFit[3]),"Beta Bayesian": float(bestFit[1])}
                     bestfit_csv = os.path.join(output_dir_itertarget, "bestfit_bayesian_T1.csv")
                     pd.DataFrame([row]).to_csv(bestfit_csv, mode="a", index=False, header=not os.path.exists(bestfit_csv))
                     return {"mode": "bayesian","row": row,"all_iters": df_all,"source_matrix": source_matrix,"valid_source_idx": valid_source_idx}
@@ -392,11 +383,11 @@ if __name__ == "__main__":
                 areas = [target_areas]
                 idxTarget = []
                 for area in areas:
-                    idxTarget.extend(Vertex.load_vertices(labels_path, area, atlas, load_one))
+                    idxTarget.extend(Vertex.load_vertices(labels_path, area, atlas))
                 # print(f"Target Area {target_name}: {len(idxTarget)} vertices") # For debugging
 
                 # Find the source area
-                idxSource = Vertex.load_vertices(labels_path, source_visual_area, atlas, load_one)
+                idxSource = Vertex.load_vertices(labels_path, source_visual_area, atlas)
                 # print(f"Source Area: {len(idxSource)} vertices") # # For debugging
 
                 # STEP 3: set up the directories 
@@ -414,32 +405,15 @@ if __name__ == "__main__":
                 if atlas == "benson":
                     labels_eccen_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.benson14_eccen-0001.label" # Path for Benson eccentricity labels
                     # Use only Benson labels up to benson_max
-                    if benson_mode == "only_labels":
-                        ecc_label_dict = read_benson_eccentricity(labels_eccen_path)
-                        ecc_dict = {v: e for v, e in ecc_label_dict.items() if e <= benson_max}
-                        print(f"Vertices kept with Benson Label: {len(ecc_dict)}")
-                    elif benson_mode == "labels+pkl":
-                        try: 
-                            # Use pRF eccentricities based on the pRF mapping below the stimulus maximum
-                            ecc_prf = source_eccentricity(subj=subj, hemi=hemi, main_path=MAIN_PATH, atlas=atlas, denoising=denoising, task=task, freesurfer_path=f"{MAIN_PATH}/freesurfer", label_file=labels_eccen_path, benson_fallback_ecc_max=benson_max)
-                            ecc_prf_filtered = {v: e for v, e in ecc_prf.items() if e <= benson_max_stimulus}
-                            ecc_dict.update(ecc_prf_filtered)
-                            # Use Benson label eccentricities based on the Benson atlas above the stimulus maximum
-                            ecc_label = read_benson_eccentricity(labels_eccen_path)
-                            ecc_label_filtered = {v: e for v, e in ecc_label.items() if benson_max_stimulus < e <= benson_max}
-                            ecc_dict.update(ecc_label_filtered)
-                            print(f"Vertices kept with Benson Label and pRF mapping values: {len(ecc_dict)}")
-                        except FileNotFoundError:
-                            # Fallback
-                            ecc_label = read_benson_eccentricity(labels_eccen_path)
-                            ecc_dict = {v: e for v, e in ecc_label.items() if e <= benson_max}
-
+                    ecc_label_dict = benson_label_to_dict(labels_eccen_path, value_name="eccentricity")
+                    ecc_dict = {v: e for v, e in ecc_label_dict.items() if e <= benson_max}
+                    # print(f"Vertices kept with Benson Label: {len(ecc_dict)}")
                     # Filter out eccentricity values for the source vertices
-                    if not filter_v1:
+                    if not filter_source:
                         filtered_idxSource = idxSource
                     else: 
-                        filtered_idxSource = [ v for v in idxSource if (e := ecc_dict.get(v.index)) is not None and ((0.5 <= e <= benson_max_stimulus) if filter_v1 else (e <= benson_max))]
-                        # print(f"Benson source vertices kept: {len(filtered_idxSource)}/{len(idxSource)} " f"(mode={benson_mode}, filter_v1={filter_v1})")
+                        filtered_idxSource = [ v for v in idxSource if (e := ecc_dict.get(v.index)) is not None and ((0.5 <= e <= max_eccentricity) if filter_source else (e <= benson_max))]
+                        # print(f"Benson source vertices kept: {len(filtered_idxSource)}/{len(idxSource)} ", filter_source={filter_source})")
                         
                 elif atlas == "manual":
                     # Load pRF-based eccentricity from pickle
@@ -450,11 +424,11 @@ if __name__ == "__main__":
                     # print("In pRF pickle:", len(manual_all & set(ecc_dict.keys())))
 
                     # Filter out eccentricity values for the source vertices
-                    if not filter_v1:
+                    if not filter_source:
                         filtered_idxSource = idxSource
                     else: 
-                        filtered_idxSource = [v for v in idxSource if (e := ecc_dict.get(v.index)) is not None and (0.5 <= e <= benson_max_stimulus)]
-                        # print(f"Manual source vertices kept: {len(filtered_idxSource)}/{len(idxSource)} " f"(mode={benson_mode}, filter_v1={filter_v1})")
+                        filtered_idxSource = [v for v in idxSource if (e := ecc_dict.get(v.index)) is not None and (0.5 <= e <= max_eccentricity)]
+                        # print(f"Manual source vertices kept: {len(filtered_idxSource)}/{len(idxSource)} ", filter_source={filter_source})")
                 
                 # STEP 5: calculate the distance matrix 
                 distances_class = Distances(subject=subj, hemi=hemi, matrix_dir=distance_matrix_path, csv_path=distance_matrix_file)

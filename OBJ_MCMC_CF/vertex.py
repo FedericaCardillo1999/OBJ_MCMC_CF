@@ -13,7 +13,7 @@ class Vertex:
         self.visual_area = visual_area       
 
     @staticmethod
-    def load_vertices(labels_path: str, visual_area: int, atlas: str , load_one=False):
+    def load_vertices(labels_path: str, visual_area: int, atlas: str):
         """
         Load vertices from the label file for a given visual area and atlas type.
         
@@ -21,7 +21,6 @@ class Vertex:
             labels_path (str): Path to the label file.
             visual_area (int): Visual area number (V1=1, V2=2, V3=3).
             atlas (str): 'manualdelin' or 'benson'.
-            load_one (bool): If True, load only one vertex.
         
         Returns:
             List or array of Vertex objects.
@@ -37,14 +36,6 @@ class Vertex:
             raise ValueError("Atlas type must be either 'manualdelin' or 'benson'.")
 
         vertices = np.array([Vertex(*i) for i in df_filtered.itertuples(index=False)])
-
-        if load_one and len(vertices) > 0:
-            vertex = vertices[0]
-            print(f"Loaded one Vertex: Index = {vertex.index}, X = {vertex.x}, Y = {vertex.y}, Z = {vertex.z}, Visual Area = {vertex.visual_area}")
-            return [vertex]
-        elif load_one:
-            print(f"No vertices found for Visual Area {visual_area} using {atlas} atlas.")
-            return []
 
         print(f"Loaded {len(vertices)} vertices from V{visual_area} using {atlas} atlas from {labels_path}.")
         return vertices

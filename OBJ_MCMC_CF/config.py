@@ -1,33 +1,24 @@
 from imports import *
 
-project = 'UMCG'  # Project name; 'RS-7T', 'EGRET+', 'OVGU'
-MAIN_PATH = f'/Users/federicacardillo/Documents/EGRETAAA/{project}/derivatives'
-ses = 'ses-02'
-cutoff_volumes = 8  # Number of initial volumes to discard 
-hemispheres = ['rh', 'lh']  # Hemispheres to process; ['lh'], ['rh'], ['lh', 'rh']
-source_visual_area = 1  # Numeric label for the source visual area (1 = V1)
-target_visual_areas = [2]  # List of numeric labels for target visual areas
-rois_list = [('V2', 2)]  # ROI name and numeric label pairs for reference
-load_one = None  # Load only one Target Vertex, mainly used for debugging
+project = 'UMCG'  # Name of your project e.g. "RS-7T", "OVGU", "UMCG"
+MAIN_PATH = f'/Users/federicacardillo/Documents/EGRETAAA/{project}/derivatives' # The main path where are stored the freesurfer and retintotopy results directory 
+ses = 'ses-02' # The session where the retinotopy results are acquired
+cutoff_volumes = 8  # The number of initial volumes to discard of the task
+hemispheres = ['rh']  # The hemisphere to process e.g. "rh", "lh"
+source_visual_area = 1  # The number from the freesurfer's label of the source visual area e.g. for V1 = 1, V2 = 2, V3 = 3
+target_visual_areas = [2]  # The number from the freesurfer's label of the target visual area
+rois_list = [('V2', 2), ('V3', 3)]  # THE ROIs name and the bnumber from freesurfer's label of the target visual area e.g.  ('V1', 1), ('V2', 2), ('V3', 3)
 ncores = 8  # Number of CPU cores to use for parallel processing
-processing_method = "zscore"  # Preprocessing method; 'zscore', 'percent', 'raw'
-atlases = ['manual']  # Atlases to use; ['benson', 'manual']
-filter_v1 = True  # Filter vertices from the source area V1, currenlty to filter out vertices with an eccentricity lower than 0.5
-tasks = ['RET']  # Tasks to process; ['RestingState', 'RET', 'RET2']
-denoising_methods = ['nordic']  # Denoising methods to use; 
-has_multiple_runs = False
-runs = [1, 2]  # Number of runs from the Resting State scan to process, in case one is eye opens and other one is eyes closed
-benson_max = 25.0  # Maximum Benson eccentricity value to include when using the Label Benson values
-mode = "bayesian" # "standard" or "bayesian"
-
-
-if project == 'OVGU':
-    benson_max_stimulus = 10.0  # Maximum Benson eccentricity value to include when using the pRF Benson values
-else: 
-    benson_max_stimulus = 7.0
-filter_benson = False  # False if you want to use the whole Label Benson values, True if you want to use the filtered pRF Benson values
-benson_mode = "only_labels" # or labels+pkl, only_labels
-if project == 'OVGU':
-    groups = {"HC": [f"sub-{i:02}" for i in range(1, 13)],"POAG": [f"sub-{i:02}" for i in range(14, 36)]}
-else:
-    groups = {"HC": [f"sub-{i:02}" for i in range(1, 20)],"POAG": [f"sub-{i:02}" for i in range(21, 46)]}
+atlases = ['manual']  # The ROIs delineation to use e.g. "manual", "benson", "bayesian_benson (still under development)"
+filter_source = True  # To exclude noisy vertices close to the fovea, it is possible to filter out vertices in the source area that have an eccentricity value below 0.5 based on the pRF mapping results. e.g. "True" to remove those vertices, "False" to use the whole source area
+tasks = ['RET']  # The tasks to run the modeling on e.g. "RestingState", "RET", "RET2 (monocular for glaucoma and simulated scotoma for the healthy controls)"
+denoising_methods = ['nordic']  # The denoising method used on the data e.g. "nordic", "nordic_sm34"
+# In case of Resting State scans some datasets run the scan with multiple runs
+# If the runs are in the same conditions, e.g. all eyes closed or all eyes open then has_multiple_runs = False. The code will store the results under the same directory 
+# If the runs are in different conditions, e.g. one eyes closed and another one eyes open then has_multiple_runs = True. The code will store the results under the different directories e.g. "/run-1", "/run-2" 
+has_multiple_runs = False 
+runs = [1, 2]  # If the runs are in different conditions, then specify the numbers of runs collected in your datasets to create the specific subdirectories. 
+benson_max = 25.0  # When running the code based on the ROIs delineation of the benson atlas you can specify the maximum eccentricity value of the vertices to be included in the analysis 
+# The degrees of eccentricity of the retintopic mapping stimulus (which might vary per project!)
+max_eccentricity = 10.0 if project == 'OVGU' else 7.0 if project == 'UMCG' else None
+groups = {"HC": [f"sub-{i:02}" for i in range(1, 13)], "POAG": [f"sub-{i:02}" for i in range(14, 36)]} if project == "OVGU" else {"HC": [f"sub-{i:02}" for i in range(1, 20)], "POAG": [f"sub-{i:02}" for i in range(21, 46)]} if project == "UMCG" else {"HC": ["sub-01", "sub-02"], "POAG": []}

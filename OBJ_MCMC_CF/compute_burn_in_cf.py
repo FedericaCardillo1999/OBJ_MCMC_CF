@@ -1,43 +1,37 @@
 import numpy as np
 
-'''
-Applies burn-in to the MCMC procedure. A first percentage of the data is omitted since convergence does not take place there yet.
-This allows for more consistent results
-'''
-def compute_burn_in_cf(postDist: np.ndarray, loglikelihood: np.ndarray, priorDist: np.ndarray, posteriorLatent: np.ndarray, posterior: np.ndarray, ve: np.ndarray, burnIn: bool, percBurnIn: float):
-    # Apply burn-in if burnIn = True
+
+def compute_burn_in_cf(postDist: np.ndarray, loglikelihood: np.ndarray, priorDist: np.ndarray, posteriorLatent: np.ndarray, posterior: np.ndarray, ve: np.ndarray, burnIn: bool,percBurnIn: float):
+    # Throw away the first part of the MCMC chain because those early samples are biased by the random initialization and don’t represent the true target distribution
+    # Apply the burn if specified in the MCMC file
     if burnIn:
-        # When the amount of iterations is too small, burn-in cannot be applied (all iterations would be omitted)
+        # Make a quick test because if the iterations are shorter than the burn-in percentage the burn-in would throw away everything, so we skip it
         if posteriorLatent.shape[1] < percBurnIn:
             burnIn = False
-        # Omit the first percentage of iterations
+        # Otherwise, apply it and remove the first percetage of iterations 
         else:
-            nBurn = burn(posteriorLatent, percBurnIn)
-            postDistB = postDist[nBurn:]
-            posteriorLatentB = posteriorLatent[:, nBurn:]
-            posteriorB = posterior[:, nBurn:]
-            loglikelihoodB = loglikelihood[nBurn:]
-            priorDistB = priorDist[nBurn:]
-            veB = 1 - ve[nBurn:] # Correct calculation for bayesian
-            # veB = ve[nBurn:]    # Correct for standard 
-            # Find best fit using maximum loglikelihood estimation
-            ind = np.argmax(loglikelihoodB)
-            bestFit = np.array([posteriorB[0, ind], posteriorB[1, ind], posteriorB[2, ind], ve[ind]])
-    # When no burn-in is applied, keep all iterations
+            nBurn = int(np.ceil(posteriorLatent.shape[1] * percBurnIn / 100.0)) # Get the burn in percentage
+            # Slice arrays from to contain only the values after the burn in 
+            postDistB = postDist[nBurn:] # Posterior distribution  
+            posteriorLatentB = posteriorLatent[:, nBurn:] # Latent parameters of lSigma and lBeta
+            posteriorB = posterior[:, nBurn:] # Main connective field parameters so the connective field coordinates and center index
+            loglikelihoodB = loglikelihood[nBurn:] # Log-likelihood values  
+            priorDistB = priorDist[nBurn:] # Prior distribution
+            veB = 1 - ve[nBurn:] # From the variance of the residuals to the variance explained
+            ind = np.argmax(loglikelihoodB) # Pick the iteration with the maximum log-likelihood 
+            bestFit = np.array([posteriorB[0, ind], posteriorB[1, ind], posteriorB[2, ind], veB[ind]]) # Connective field size, beta, center index and variance explained
+
+    # If burn in is not applied
     if not burnIn:
-        postDistB = postDist
-        posteriorLatentB = posteriorLatent
-        posteriorB = posterior
-        loglikelihoodB = loglikelihood
-        priorDistB = priorDist
-        veB = 1 - ve
+        # Keep the arrays to include the entire iterations
+        postDistB = postDist # Posterior distribution  
+        posteriorLatentB = posteriorLatent # Latent parameters of lSigma and lBeta
+        posteriorB = posterior # Main connective field parameters so the connective field coordinates an
+        loglikelihoodB = loglikelihood # Log-likelihood values  
+        priorDistB = priorDist # Prior distribution
+        veB = 1 - ve # From the variance of the residuals to the variance explained
+        ind = np.argmax(loglikelihoodB) # Pick the iteration with the maximum log-likelihood 
+        bestFit = np.array([posteriorB[0, ind], posteriorB[1, ind], posteriorB[2, ind], veB[ind]]) # Connective field size, beta, center index and variance explained
 
-        # Find best fit using maximum loglikelihood estimation
-        ind = np.argmax(loglikelihoodB)
-        bestFit = np.array([posteriorB[0, ind], posteriorB[1, ind], posteriorB[2, ind], ve[ind]])
-
+    # Output 
     return bestFit, postDistB, loglikelihoodB, priorDistB, posteriorLatentB, posteriorB, veB
-
-def burn(posteriorLatent: np.ndarray, percBurnIn: float):
-    nBurn = posteriorLatent.shape[1]//percBurnIn
-    return nBurn
