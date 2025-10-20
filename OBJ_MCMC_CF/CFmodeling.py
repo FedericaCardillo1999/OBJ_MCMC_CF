@@ -257,6 +257,7 @@ class ConnectiveField:
         if mode == "standard": 
             results = []
             best_fit_temp = None
+            import numpy as np
             best_coarse_ve = -np.inf
             # Iterate through all source vertices: coarse search
             for source_vertex in source_vertices:
@@ -443,20 +444,16 @@ if __name__ == "__main__":
                 target_time_course_obj = TimeCourse(time_course_file=time_series_path, vertices=filtered_idxTarget, cutoff_volumes=cutoff_volumes)
                 source_time_course_obj = TimeCourse(time_course_file=time_series_path, vertices=filtered_idxSource, cutoff_volumes=cutoff_volumes)
                 
-                from config import mode
-                if mode == "standard": 
-                    z_scored_target = target_time_course_obj.z_score(method="zscore")
-                    z_scored_source = source_time_course_obj.z_score(method="zscore")
-                elif mode == "bayesian": 
-                    z_scored_target = target_time_course_obj.z_score(method="zscore")
-                    z_scored_source = source_time_course_obj.z_score(method="zscore")
-                
                 # STEP 7: Standard connective field modeling
                 connective_field = ConnectiveField(center_vertex=None, vertex=None)
                 sigma_values = connective_field.define_size_range(start=1, stop=-1.25, num=50)
+                z_scored_target = target_time_course_obj.z_score(method="zscore")
+                z_scored_source = source_time_course_obj.z_score(method="zscore")
                 Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "standard") for target_vertex in idxTarget)
                 
                 # STEP 8: Bayesian connective field modeling
+                z_scored_target = target_time_course_obj.z_score(method="zscore")
+                z_scored_source = source_time_course_obj.z_score(method="zscore")
                 results = Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "bayesian") for target_vertex in idxTarget[:10])
                 bayes_rows = [r["row"] for r in results if isinstance(r, dict) and r.get("mode") == "bayesian"]
                 if bayes_rows:
@@ -469,5 +466,4 @@ if __name__ == "__main__":
     #project_dir = Path(__file__).parent
     #subprocess.run([sys.executable, str(project_dir  / "clean_bestfits.py"), subj], check=True, cwd=str(project_dir))
     #subprocess.run([sys.executable, str(project_dir  / "visualfieldmaps.py"), subj], check=True, cwd=str(project_dir))
-    #subprocess.run([sys.executable, str(project_dir  / "cumulativedistribution.py"), subj], check=True, cwd=str(project_dir))
     #subprocess.run([sys.executable, str(project_dir  / "dataquality.py"), subj], check=True, cwd=str(project_dir))

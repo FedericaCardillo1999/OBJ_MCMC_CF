@@ -1,7 +1,9 @@
 from imports import *
 
 project = 'UMCG'  # Name of your project e.g. "RS-7T", "OVGU", "UMCG"
+PROJECT_PATH = f'/Users/federicacardillo/Documents/EGRETAAA/{project}'
 MAIN_PATH = f'/Users/federicacardillo/Documents/EGRETAAA/{project}/derivatives' # The main path where are stored the freesurfer and retintotopy results directory 
+freesurfer_path = f"MAIN_PATH/freesurfer" 
 ses = 'ses-02' # The session where the retinotopy results are acquired
 cutoff_volumes = 8  # The number of initial volumes to discard of the task
 hemispheres = ['rh']  # The hemisphere to process e.g. "rh", "lh"
@@ -22,3 +24,5 @@ benson_max = 25.0  # When running the code based on the ROIs delineation of the 
 # The degrees of eccentricity of the retintopic mapping stimulus (which might vary per project!)
 max_eccentricity = 10.0 if project == 'OVGU' else 7.0 if project == 'UMCG' else None
 groups = {"HC": [f"sub-{i:02}" for i in range(1, 13)], "POAG": [f"sub-{i:02}" for i in range(14, 36)]} if project == "OVGU" else {"HC": [f"sub-{i:02}" for i in range(1, 20)], "POAG": [f"sub-{i:02}" for i in range(21, 46)]} if project == "UMCG" else {"HC": ["sub-01", "sub-02"], "POAG": []}
+all_subjects = [d for d in os.listdir(PROJECT_PATH) if d.startswith("sub-") and os.path.isdir(os.path.join(PROJECT_PATH, d))]
+subjects = {sub: {"path": os.path.join(PROJECT_PATH, sub)} for sub in all_subjects}

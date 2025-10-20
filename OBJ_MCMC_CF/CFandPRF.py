@@ -70,6 +70,6 @@ def source_eccentricity(subj, hemi, main_path, atlas, denoising, task, freesurfe
     # Load the pRF results for this subject, atlas, denoising method, and task to obtain the source vertices filtered by eccentricity
     prf_params, prf_voxels = load_prf(subj, main_path, atlas, denoising, task) # Load the pRF mapping results
     prf_model = filter_prf(prf_params, prf_voxels) # # Filter the pRF mapping parameters and vertex indices
-    vertices, ecc = adjusting_verticesandecc(prf_voxels, prf_model, freesurfer_path, subj, hemi) # Adjust vertices and eccentricities so they match FreeSurfer surface space
+    vertices, ecc, angle = adjusting_verticesandecc(prf_voxels, prf_model, freesurfer_path, subj, hemi) # Adjust vertices and eccentricities so they match FreeSurfer surface space
     ecc_dict = dict(zip(vertices, ecc)) # Return the dictionary of vertex index and respective eccentricity 
     return ecc_dict
