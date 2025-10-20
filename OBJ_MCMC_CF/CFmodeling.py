@@ -300,7 +300,8 @@ class ConnectiveField:
                     target_matrix = self.observed_time_series[:, None]  # observed signal
 
                     # MCMC cluster
-                    (bestFit, ve, posterior, posteriorLatent, postDist, loglikelihood) = MCMC_CF_cluster( idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix)
+
+                    (bestFit, postDist, loglikelihood, priorDist,posterior, posteriorLatent, ve) = MCMC_CF_cluster( idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix)
                     # Save the full iterations for debugging 
                     n_iter = ve.shape[0]
                     rows = []
@@ -454,7 +455,7 @@ if __name__ == "__main__":
                 # STEP 8: Bayesian connective field modeling
                 z_scored_target = target_time_course_obj.z_score(method="zscore")
                 z_scored_source = source_time_course_obj.z_score(method="zscore")
-                results = Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "bayesian") for target_vertex in idxTarget[:10])
+                results = Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "bayesian") for target_vertex in idxTarget)
                 bayes_rows = [r["row"] for r in results if isinstance(r, dict) and r.get("mode") == "bayesian"]
                 if bayes_rows:
                     df_bayes = pd.DataFrame(bayes_rows)
