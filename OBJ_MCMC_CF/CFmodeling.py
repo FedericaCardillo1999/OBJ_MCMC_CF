@@ -88,7 +88,61 @@ class TimeCourse:
             # print(f"Loaded time series for vertex {index} with length {len(time_course)") # For debugging}")
         return tSeries
 
-    def z_score(self, method: str = "zscore") -> dict:
+    def z_score(self, method: str = "zscore", plot_bad: bool = True, max_plots: int = 5) -> dict:
+        processed_data = {}
+        bad_vertices = []  # collect zero-variance ones
+
+        for index, time_course in self.tSeries.items():
+            if method == "zscore":
+                std = np.nanstd(time_course)
+                if std == 0 or np.isnan(std):  # zero variance or nonsense
+                    bad_vertices.append(index)
+                    processed = np.full_like(time_course, np.nan)  # mark unusable
+                else:
+                    processed = (time_course - np.nanmean(time_course)) / std
+            elif method == "demean":
+                processed = time_course - np.nanmean(time_course)
+            elif method == "none":
+                processed = time_course
+            processed_data[index] = processed
+
+        # summary print
+        if bad_vertices:
+            print(f"Found {len(bad_vertices)} vertices out of {len(self.tSeries)} with flat time course")
+
+            # optional plotting for first few
+            # optional plotting for first few bad vertices
+            plot_bad = False
+            if plot_bad:
+                for i, bad_idx in enumerate(bad_vertices[:max_plots]):
+                    raw_tc = self.tSeries[bad_idx]
+                    proc_tc = processed_data[bad_idx]
+                    time_axis = np.arange(len(raw_tc))   # convert volumes → seconds
+
+                    plt.figure(figsize=(12, 4))
+
+                    # raw signal
+                    plt.subplot(1, 2, 1)
+                    plt.plot(time_axis, raw_tc, color="gray")
+                    plt.title(f"Raw (Vertex {bad_idx})")
+                    plt.xlabel("Time (s)")
+                    plt.ylabel("BOLD signal")
+
+                    # z-scored signal
+                    plt.subplot(1, 2, 2)
+                    plt.plot(time_axis, proc_tc, color="red")
+                    plt.title(f"Z-scored (Vertex {bad_idx})")
+                    plt.xlabel("Time (s)")
+                    plt.ylabel("Z-score")
+
+                    plt.suptitle(f"Vertex Example {i+1}")
+                    plt.tight_layout()
+                    # plt.show()
+
+        # return processed only for good vertices
+        return {k: v for k, v in processed_data.items() if k not in bad_vertices}
+
+    def z_score_2(self, method: str = "zscore") -> dict:
         processed_data = {} # Dictionary to store the processed time series
         
         # Loop through each vertex and its time course
@@ -211,7 +265,7 @@ class ConnectiveField:
         ss_residual = np.sum((observed[:, np.newaxis] - predicted_matrix) ** 2, axis=0)
         variance_explained = 1 - (ss_residual / ss_total)
         return variance_explained
-
+    
     def evaluate_mse(self, observed: np.ndarray, predicted_matrix: np.ndarray) -> np.ndarray:
         # # Expand observed to shape (n_time_points, 1) so it can broadcast against predicted_matrix (n_time_points, n_sigmas)
         # Square the differences, then take mean across time points (axis=0)
@@ -224,7 +278,7 @@ class ConnectiveField:
         row_data = distance_matrix.loc[vertex_indices, source_index].to_numpy().reshape(-1, 1) # Distances
         ts_matrix = np.stack([source_time_series[v] for v in vertex_indices], axis=1) # Stack time series   
         # Predictions for all sigma 
-        predicted_matrix, _ = self.compute_prediction(ts_matrix, row_data, sigma_values)        
+        predicted_matrix, _ = self.compute_prediction(ts_matrix, row_data, sigma_values) 
         # Choose sgima by MSE 
         # mse_values = self.evaluate_mse(observed, predicted_matrix)
         # best_index = np.argmin(mse_values)
@@ -238,9 +292,9 @@ class ConnectiveField:
         idxs = np.flatnonzero(mask)
         # If there are ties, we pick the one with the largest sigma value
         sig_arr = np.asarray(sigma_values, dtype=float)
-        # best_tie_idx = idxs[np.argmax(sig_arr[idxs])] ####################################################################################################################### TEST
-        
-        best_tie_idx = idxs[np.argmin(sig_arr[idxs])]
+        best_tie_idx = idxs[np.argmax(sig_arr[idxs])] ####################################################################################################################### TEST
+
+        # best_tie_idx = idxs[np.argmin(sig_arr[idxs])]
         # Extract the best sigma and corresponding prediction
         best_index = int(best_tie_idx)
         best_sigma_coarse = float(sig_arr[best_index])
@@ -399,7 +453,7 @@ if __name__ == "__main__":
                 distance_matrix_file = f"{distance_matrix_path}/{subj}_distance_{hemi}_{source_visual_area}.csv"
                 output_dir_itertarget = f"{output_dir}/{hemi}/{target_name}-V{source_visual_area}"
                 os.makedirs(output_dir_itertarget, exist_ok=True)
-                best_fit_output = f"{output_dir_itertarget}/best_fits.csv"
+                best_fit_output = f"{output_dir_itertarget}/best_fits_test.csv"
 
                 # STEP 4: filter the data points per eccentricity values
                 filtered_idxTarget = idxTarget  # No modification is needed for the target area
@@ -448,23 +502,25 @@ if __name__ == "__main__":
                 # STEP 7: Standard connective field modeling
                 connective_field = ConnectiveField(center_vertex=None, vertex=None)
                 sigma_values = connective_field.define_size_range(start=1, stop=-1.25, num=50)
+                # sigma_values = connective_field.define_size_range(start=1, stop=-2, num=50)
+                # print(sigma_values)
                 z_scored_target = target_time_course_obj.z_score(method="zscore")
                 z_scored_source = source_time_course_obj.z_score(method="zscore")
                 Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "standard") for target_vertex in idxTarget)
                 
-                # STEP 8: Bayesian connective field modeling
+                """# STEP 8: Bayesian connective field modeling
                 z_scored_target = target_time_course_obj.z_score(method="zscore")
                 z_scored_source = source_time_course_obj.z_score(method="zscore")
-                results = Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "bayesian") for target_vertex in idxTarget)
+                results = Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "bayesian") for target_vertex in idxTarget[:10])
                 bayes_rows = [r["row"] for r in results if isinstance(r, dict) and r.get("mode") == "bayesian"]
                 if bayes_rows:
                     df_bayes = pd.DataFrame(bayes_rows)
                     bayes_csv = os.path.join(output_dir_itertarget, "best_fits_bayesian.csv")
-                    df_bayes.to_csv(bayes_csv, index=False)  # single write, safe & fast
+                    df_bayes.to_csv(bayes_csv, index=False)  # single write"""
         print(f"\nConnective Field Modeling Completed")
 
     # Post Processing
-    #project_dir = Path(__file__).parent
-    #subprocess.run([sys.executable, str(project_dir  / "clean_bestfits.py"), subj], check=True, cwd=str(project_dir))
-    #subprocess.run([sys.executable, str(project_dir  / "visualfieldmaps.py"), subj], check=True, cwd=str(project_dir))
-    #subprocess.run([sys.executable, str(project_dir  / "dataquality.py"), subj], check=True, cwd=str(project_dir))
+    project_dir = Path(__file__).parent
+    subprocess.run([sys.executable, str(project_dir  / "clean_bestfits.py"), subj], check=True, cwd=str(project_dir))
+    subprocess.run([sys.executable, str(project_dir  / "visualfieldmaps.py"), subj], check=True, cwd=str(project_dir))
+    subprocess.run([sys.executable, str(project_dir  / "dataquality.py"), subj], check=True, cwd=str(project_dir))

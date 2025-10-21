@@ -91,6 +91,7 @@ for subj in subjects: # Loop over all the subjects
                         # Due to parallelization, sometimes the header of the best fit is broked
                         # e.g. It starts directly with numerical values and the header in in the second row
                         # e.i. The header is repeated for the first and thrid row 
+                        best_fit = pd.read_csv(best_fit_path)
                         repeated = best_fit['Target Vertex Index'] == 'Target Vertex Index' # Detect whether the header is present in multiple rows
                         if repeated.any(): # If there are any fix the best fit file 
                             best_fit = fix_header(best_fit_path)

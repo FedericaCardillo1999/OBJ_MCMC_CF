@@ -92,7 +92,7 @@ if __name__ == "__main__":
     base_dir = os.path.join(MAIN_PATH, "CFM", subj, ses, atlas, task, denoising, "GM") # Extract the directory where to find the best fit file
     out_dir = os.path.join(MAIN_PATH, "CFM", "results", "dataquality", subj) # Output directory for the data quality plots
     os.makedirs(out_dir, exist_ok=True) # Make sure these directories are applied 
-    roi_dict = dict(rois_list) # Turn the list of ROIs in the config file into a dictionary {1:'V1', 2:'V2'}
+    roi_dict = {v: k for k, v in rois_list}  # Turn the list of ROIs in the config file into a dictionary {2: 'V2', 3: 'V3'}
     src_name = roi_dict[source_visual_area] # Look up the source area's name
     areas = [f"{roi_dict[t]}-{src_name}" for t in target_visual_areas if t != source_visual_area] # For each target area number, look up its name in the dictionary and skips the source area 
 

@@ -51,8 +51,8 @@ def load_bestfits_csv(path):
         "Target Vertex Index",
         "Source Eccentricity",
         "Source Polar Angle",
-        "Best Variance Explained Finer",
-        "Best Sigma Finer",
+        "Variance Explained",
+        "CF Sigma",
     ]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -133,38 +133,33 @@ if __name__ == "__main__":
                             csv_path = f"{MAIN_PATH}/CFM/{subj}/{ses}/{atlas}/{task}/run-{run_tag}/{denoising}/GM/{hemi}/{pair}/best_fits_prf.csv"
                         else:
                             csv_path = f"{MAIN_PATH}/CFM/{subj}/{ses}/{atlas}/{task}/{denoising}/GM/{hemi}/{pair}/best_fits_prf.csv"
-
+                        print("MAIN_PATH:", MAIN_PATH)
+                        print("Example path:", f"{MAIN_PATH}/CFM/sub-02/ses-01/benson/RestingState/nordic_sm4/GM/rh/V2-V1/best_fits_prf.csv")
                         if not os.path.exists(csv_path):
                             print(f"[Missing] {csv_path}")
                             continue
 
                         df = load_bestfits_csv(csv_path)
-                        if df.empty:
-                            print(f"[Warning] Empty or unreadable: {csv_path}")
-                            continue
-
-                        if "Target Vertex Index" not in df.columns:
-                            print(f"[Warning] No 'Target Vertex Index' in {csv_path}")
-                            continue
 
                         # Valid indices only
                         tgt_idx = pd.to_numeric(df["Target Vertex Index"], errors="coerce")
                         valid_mask = tgt_idx.notna() & (tgt_idx >= 0) & (tgt_idx < n_vertices)
-                        if not valid_mask.any():
-                            continue
                         idx = tgt_idx[valid_mask].astype(int).values
                         sub = df.loc[valid_mask].copy()
 
                         # Fill maps if columns exist
                         if "Source Eccentricity" in sub.columns:
                             hemi_ecc[idx] = pd.to_numeric(sub["Source Eccentricity"], errors="coerce").fillna(50.0).values
+                            print(hemi_ecc[idx])
                         if "Source Polar Angle" in sub.columns:
                             hemi_pol[idx] = pd.to_numeric(sub["Source Polar Angle"], errors="coerce").fillna(50.0).values
-                        if "Best Variance Explained Finer" in sub.columns:
-                            hemi_ve[idx] = pd.to_numeric(sub["Best Variance Explained Finer"], errors="coerce").fillna(50.0).values
-                        if "Best Sigma Finer" in sub.columns:
-                            hemi_sigma[idx] = pd.to_numeric(sub["Best Sigma Finer"], errors="coerce").fillna(50.0).values
-
+                        if "Variance Explained" in sub.columns:
+                            hemi_ve[idx] = pd.to_numeric(sub["Variance Explained"], errors="coerce").fillna(50.0).values
+                        if "CF Sigma" in sub.columns:
+                            hemi_sigma[idx] = pd.to_numeric(sub["CF Sigma"], errors="coerce").fillna(50.0).values
+                    print("Total vertices:", n_vertices)
+                    print("Vertices with data:", len(idx))
+                    print("Min/Max values:", hemi_ecc.min(), hemi_ecc.max())
                     # Save the four maps for this hemisphere/run
                     save_maps(subj, hemi, run_tag, atlas, task, hemi_ecc, hemi_pol, hemi_ve, hemi_sigma, results_dir, freesurfer_root)
 
