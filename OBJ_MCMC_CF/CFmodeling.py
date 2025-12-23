@@ -49,7 +49,7 @@ class Distances(Vertex):
         # Initialize an empty square matrix for distances: rows and columns correspond to vertices
         dists_source = np.zeros((len(source_verts), len(source_verts)), dtype=np.float32)
         
-        # BUG: PREVIOUS COMPUTATION FOR THE DISTANCE MATRIX 
+        # PREVIOUS COMPUTATION FOR THE DISTANCE MATRIX 
         # for i in range(len(source_verts)):
         #    dists = surface.geodesic_distance(source_verts[i])  
         #    for j in range(len(source_verts)):
@@ -90,12 +90,12 @@ class TimeCourse:
 
     def z_score(self, method: str = "zscore", plot_bad: bool = True, max_plots: int = 5) -> dict:
         processed_data = {}
-        bad_vertices = []  # collect zero-variance ones
+        bad_vertices = []  # TO TEST IN JANUARY: his was introduced because some vertices have zero variance 
 
         for index, time_course in self.tSeries.items():
             if method == "zscore":
                 std = np.nanstd(time_course)
-                if std == 0 or np.isnan(std):  # zero variance or nonsense
+                if std == 0 or np.isnan(std):  # TO TEST IN JANUARY: his was introduced because some vertices have zero variance 
                     bad_vertices.append(index)
                     processed = np.full_like(time_course, np.nan)  # mark unusable
                 else:
@@ -106,59 +106,12 @@ class TimeCourse:
                 processed = time_course
             processed_data[index] = processed
 
-        # summary print
+        #  TO TEST IN JANUARY: which subjects and hemispheres 
         if bad_vertices:
             print(f"Found {len(bad_vertices)} vertices out of {len(self.tSeries)} with flat time course")
 
-            # optional plotting for first few
-            # optional plotting for first few bad vertices
-            plot_bad = False
-            if plot_bad:
-                for i, bad_idx in enumerate(bad_vertices[:max_plots]):
-                    raw_tc = self.tSeries[bad_idx]
-                    proc_tc = processed_data[bad_idx]
-                    time_axis = np.arange(len(raw_tc))   # convert volumes → seconds
-
-                    plt.figure(figsize=(12, 4))
-
-                    # raw signal
-                    plt.subplot(1, 2, 1)
-                    plt.plot(time_axis, raw_tc, color="gray")
-                    plt.title(f"Raw (Vertex {bad_idx})")
-                    plt.xlabel("Time (s)")
-                    plt.ylabel("BOLD signal")
-
-                    # z-scored signal
-                    plt.subplot(1, 2, 2)
-                    plt.plot(time_axis, proc_tc, color="red")
-                    plt.title(f"Z-scored (Vertex {bad_idx})")
-                    plt.xlabel("Time (s)")
-                    plt.ylabel("Z-score")
-
-                    plt.suptitle(f"Vertex Example {i+1}")
-                    plt.tight_layout()
-                    # plt.show()
-
         # return processed only for good vertices
         return {k: v for k, v in processed_data.items() if k not in bad_vertices}
-
-    def z_score_2(self, method: str = "zscore") -> dict:
-        processed_data = {} # Dictionary to store the processed time series
-        
-        # Loop through each vertex and its time course
-        for index, time_course in self.tSeries.items():
-            # Subtract mean and divide by standard deviation
-            # This rescales the data so it's centered at 0 with unit variance
-            if method == "zscore": 
-                processed = (time_course - np.nanmean(time_course)) / np.nanstd(time_course)
-            # Subtract only the mean 
-            # Signal is centered at 0 but keeps original variance
-            elif method == "demean":
-                processed = time_course - np.nanmean(time_course)
-            elif method == "none": # Keep the raw signal as it is
-                processed = time_course
-            processed_data[index] = processed  # Save the processed time series in the dictionary (key = vertex index)
-        return processed_data
     
     def plot_time_series(self, vertex_index: int, show: bool = True) -> None:
         time_course = self.tSeries[vertex_index] # Extract the time course for this vertex
@@ -279,24 +232,18 @@ class ConnectiveField:
         ts_matrix = np.stack([source_time_series[v] for v in vertex_indices], axis=1) # Stack time series   
         # Predictions for all sigma 
         predicted_matrix, _ = self.compute_prediction(ts_matrix, row_data, sigma_values) 
-        # Choose sgima by MSE 
-        # mse_values = self.evaluate_mse(observed, predicted_matrix)
-        # best_index = np.argmin(mse_values)
-        # Choose sgima by VE 
+
+        # observed: shape (T,)
+        # predicted_matrix: shape (T, N_sigmas)
+        # sigma_values: list or array of length N_sigmas
+        # TO TEST IN JANUARY: We currently choose sigma/center by MSE and return the VE for that sigma and quality of fit
+        mse_values = self.evaluate_mse(observed, predicted_matrix)
+        best_index = np.argmin(mse_values) # Minimize sigma
         # For each candidate sigma, compute how well the model predicts the observed signal
         ve_values = self.evaluate_fit(observed, predicted_matrix) 
-        ve_max = float(ve_values.max())
+        # ve_max = float(ve_values.max())
 
-        # Treat near-equal VEs as ties
-        mask = np.isclose(ve_values, ve_max, rtol=1e-12, atol=1e-12)
-        idxs = np.flatnonzero(mask)
-        # If there are ties, we pick the one with the largest sigma value
         sig_arr = np.asarray(sigma_values, dtype=float)
-        best_tie_idx = idxs[np.argmax(sig_arr[idxs])] ####################################################################################################################### TEST
-
-        # best_tie_idx = idxs[np.argmin(sig_arr[idxs])]
-        # Extract the best sigma and corresponding prediction
-        best_index = int(best_tie_idx)
         best_sigma_coarse = float(sig_arr[best_index])
         best_prediction = predicted_matrix[:, best_index]
         ve_for_best = float(ve_values[best_index])
@@ -311,7 +258,6 @@ class ConnectiveField:
         if mode == "standard": 
             results = []
             best_fit_temp = None
-            import numpy as np
             best_coarse_ve = -np.inf
             # Iterate through all source vertices: coarse search
             for source_vertex in source_vertices:
@@ -328,8 +274,8 @@ class ConnectiveField:
 
             # Finer search around the best coarse source vertex
             self.center_vertex = best_fit_temp["source_vertex"]
-            row_data_series = distance_matrix.loc[:, self.center_vertex.index]          # distances to chosen source
-            filtered_indices = list(source_time_series.keys())                          # same order for distances + series
+            row_data_series = distance_matrix.loc[:, self.center_vertex.index] # distances to chosen source
+            filtered_indices = list(source_time_series.keys()) # same order for distances + series
             filtered_row_data = row_data_series.loc[filtered_indices].to_numpy().reshape(-1, 1)
 
             sigma_finer, prediction_finer, ve_finer = self.finer_search_sigma(self.observed_time_series, source_time_series, filtered_row_data, best_fit_temp["sigma_coarse"])
@@ -345,16 +291,15 @@ class ConnectiveField:
             best_fit_df.to_csv(best_fit_output, mode="a", index=False, header=not os.path.exists(best_fit_output))
         
         elif mode == "bayesian":
+                    # TO TEST IN JANUARY WITH N. GRAVEL. 
                     # Build dict with only filtered sources
                     source_idx = [v.index for v in source_vertices]  
                     available_sources = set(source_time_series.keys())
                     valid_source_idx = [i for i in source_idx if i in available_sources]
-                    import numpy as np 
                     source_matrix = np.stack([source_time_series[i] for i in valid_source_idx], axis=1)
                     target_matrix = self.observed_time_series[:, None]  # observed signal
 
                     # MCMC cluster
-
                     (bestFit, postDist, loglikelihood, priorDist,posterior, posteriorLatent, ve) = MCMC_CF_cluster( idxSource=np.array(source_idx), distances=distance_matrix.values, tSeriesSource=source_matrix, tSeriesTarget=target_matrix)
                     # Save the full iterations for debugging 
                     n_iter = ve.shape[0]
@@ -362,8 +307,6 @@ class ConnectiveField:
                     for j in range(n_iter):
                         rows.append({"TargetVertexIndex": int(target_vertex.index),"Iteration": j,"SourceVertexIndex": int(posterior[2, j]), "Sigma": float(posterior[0, j]),"Beta": float(posteriorLatent[1, j]),"Variance Explained": float(ve[j]), "Posterior": float(postDist[j]),"LogLikelihood": float(loglikelihood[j])})
                     df_all = pd.DataFrame(rows)
-                    # chain_csv = os.path.join(output_dir_itertarget, f"iterations_{target_vertex.index}.csv")
-                    # df_all.to_csv(chain_csv, index=False)
                     # Save results 
                     row = {"Target Vertex Index": int(target_vertex.index),"Source Vertex Index": int(bestFit[2]),"CF Sigma Bayesian": float(bestFit[0]), "Variance Explained": float(bestFit[3]),"Beta Bayesian": float(bestFit[1])}
                     bestfit_csv = os.path.join(output_dir_itertarget, "bestfit_bayesian_T1.csv")
@@ -372,6 +315,7 @@ class ConnectiveField:
 
     def finer_search_sigma(self, observed: np.array, source_time_series: dict, distances: np.array, initial_sigma: float):
         # Objective function: negative variance explained
+        # TO TEST IN JANUARY: We currently choose sigma/center by MSE and return the VE for that sigma and quality of fit but for the sigma itself with finer search we maximize VE directly
         def neg_ve(sigma):
             # Compute Gaussian weights for this sigma
             weights = self.calculate_gaussian_weights(distances, [sigma]).flatten()
@@ -384,31 +328,28 @@ class ConnectiveField:
             return -ve
 
         # Run scalar optimization with bounds: sigma must stay between 0.05 and 10.5
-        # "bounded" forces these limits
-        # res = minimize_scalar(neg_ve, bounds=(0.05, 10.5), method='bounded')
-        # best_sigma = float(res.x)
         # run a bounded scalar search inside this local window
-        res = minimize_scalar(neg_ve, bounds=(0.05, 10.5), method='bounded')
+        res = minimize_scalar(neg_ve, bounds=(0, 10.5), method='bounded')
         best_sigma = float(res.x)
 
         # Evaluate the coarse sigma itself and keep whichever is better
-        def ve_at(s):
-            w = self.calculate_gaussian_weights(distances, [s]).flatten()
-            idx = list(source_time_series.keys())
-            X = np.stack([source_time_series[v] for v in idx], axis=1)
-            pred = np.dot(X, w)
+        def ve_at(s): # Evaluate VE at a specific sigma
+            w = self.calculate_gaussian_weights(distances, [s]).flatten() # Weights for this sigma
+            idx = list(source_time_series.keys()) # This are mainly here to avoid ordering issues
+            X = np.stack([source_time_series[v] for v in idx], axis=1) # Stack time series
+            pred = np.dot(X, w) # Prediction for this sigma
             return float(self.evaluate_fit(observed, pred[:, None])[0])
 
-        ve_coarse = ve_at(initial_sigma)
-        ve_fine   = ve_at(best_sigma)
-        if ve_coarse >= ve_fine:
+        ve_coarse = ve_at(initial_sigma) # Evaluate VE at the coarse sigma
+        ve_fine   = ve_at(best_sigma) # Evaluate VE at the fine sigma 
+        if ve_coarse >= ve_fine: # Keep coarse if better
             best_sigma = float(initial_sigma)
 
         # Compute final prediction with the chosen sigma
-        weights = self.calculate_gaussian_weights(distances, [best_sigma]).flatten()
+        weights = self.calculate_gaussian_weights(distances, [best_sigma]).flatten() # Weights for best sigma
         vertex_indices = list(source_time_series.keys())
-        time_series_matrix = np.stack([source_time_series[v] for v in vertex_indices], axis=1)
-        prediction = np.dot(time_series_matrix, weights)
+        time_series_matrix = np.stack([source_time_series[v] for v in vertex_indices], axis=1) # Stack time series
+        prediction = np.dot(time_series_matrix, weights) 
         variance_explained = self.evaluate_fit(observed, prediction[:, np.newaxis])[0] # Compute variance explained for this prediction
         return best_sigma, prediction, variance_explained
 
@@ -424,14 +365,23 @@ if __name__ == "__main__":
                 label_suffix = "manualdelin" if atlas == "manual" else "benson14_varea-0001"
                 labels_path = f"{MAIN_PATH}/freesurfer/{subj}/label/{hemi}.{label_suffix}.label"
                 # Time series path depends only on hemisphere
-                time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-{task}_hemi-{hemi}_desc-avg_bold_GM.npy"
+                if project == "UMCG" and subj == "sub-19" and task == "RestingState":
+                    run = 1   # force run-1 for this subject because it only has one run available 
+                if project == "UMCG":
+                    if task == "RestingState" and run is not None:
+                        time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/trimmed/{subj}_{ses}_task-{task}_run-{run}_hemi-{hemi}_trimmed_bold_GM.npy"
+                    else:
+                        time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/trimmed/{subj}_{ses}_task-{task}_hemi-{hemi}_desc-avg_trimmed_bold_GM.npy"
+                else: 
+                    time_series_path = f"{MAIN_PATH}/pRFM/{subj}/{ses}/{denoising}/{subj}_{ses}_task-{task}_run-{run}_hemi-{hemi}_desc-avg_bold_GM.npy"
+
                 # Build output dir and include the run directory only when we actually have multiple runs
                 base_dir = f"{MAIN_PATH}/CFM/{subj}/{ses}/{atlas}/{task}"
                 output_dir = f"{base_dir}/run-{run}/{denoising}/GM" if (task == "RestingState" and has_multiple_runs) else f"{base_dir}/{denoising}/GM"
                 
                 # STEP 2: load the regions of interest
                 target_name, target_areas = None, None
-                for name, label in rois_list:
+                for name, label in rois_list: # Find the target area 
                     if target_visual_area == label:
                         target_name, target_areas = name, label
                         break
@@ -439,7 +389,7 @@ if __name__ == "__main__":
                 areas = [target_areas]
                 idxTarget = []
                 for area in areas:
-                    idxTarget.extend(Vertex.load_vertices(labels_path, area, atlas))
+                    idxTarget.extend(Vertex.load_vertices(labels_path, area, atlas)) # Load target vertices
                 # print(f"Target Area {target_name}: {len(idxTarget)} vertices") # For debugging
 
                 # Find the source area
@@ -453,7 +403,7 @@ if __name__ == "__main__":
                 distance_matrix_file = f"{distance_matrix_path}/{subj}_distance_{hemi}_{source_visual_area}.csv"
                 output_dir_itertarget = f"{output_dir}/{hemi}/{target_name}-V{source_visual_area}"
                 os.makedirs(output_dir_itertarget, exist_ok=True)
-                best_fit_output = f"{output_dir_itertarget}/best_fits_test.csv"
+                best_fit_output = f"{output_dir_itertarget}/best_fits.csv"
 
                 # STEP 4: filter the data points per eccentricity values
                 filtered_idxTarget = idxTarget  # No modification is needed for the target area
@@ -473,17 +423,12 @@ if __name__ == "__main__":
                         
                 elif atlas == "manual":
                     # Load pRF-based eccentricity from pickle
-                    ecc_dict = source_eccentricity(subj=subj, hemi=hemi, main_path=MAIN_PATH, atlas=atlas, denoising=denoising, task=task, freesurfer_path=f"{MAIN_PATH}/freesurfer")
-                    # print(f"pRF-based eccentricity for {len(ecc_dict)} vertices")
-                    # manual_all = {v.index for v in idxTarget}
-                    # print("Manual all vertices:", len(manual_all))
-                    # print("In pRF pickle:", len(manual_all & set(ecc_dict.keys())))
-
-                    # Filter out eccentricity values for the source vertices
+                    ecc_dict = source_eccentricity(subj=subj, hemi=hemi, main_path=MAIN_PATH, atlas=atlas, ses=ses, denoising=denoising, task=task, freesurfer_path=f"{MAIN_PATH}/freesurfer")
+                    # Filter out eccentricity values for the source vertices close to the fovea 
                     if not filter_source:
                         filtered_idxSource = idxSource
                     else: 
-                        filtered_idxSource = [v for v in idxSource if (e := ecc_dict.get(v.index)) is not None and (0.5 <= e <= max_eccentricity)]
+                        filtered_idxSource = [v for v in idxSource if (e := ecc_dict.get(v.index)) is not None and (0 <= e <= max_eccentricity)]
                         # print(f"Manual source vertices kept: {len(filtered_idxSource)}/{len(idxSource)} ", filter_source={filter_source})")
                 
                 # STEP 5: calculate the distance matrix 
@@ -491,7 +436,6 @@ if __name__ == "__main__":
                 distances_class.geodesic_dists(hemi=hemi, subject=subj, vertices=filtered_idxSource, source=source_visual_area, output_dir=distance_matrix_path)
                 distance_matrix = pd.read_csv(distance_matrix_file, index_col=0)
                 # print(f"Distance Matrix {atlas}: {distance_matrix.shape}") # For debugging 
-
                 distance_matrix.index = distance_matrix.index.astype(int)
                 distance_matrix.columns = distance_matrix.columns.astype(int)
 
@@ -501,9 +445,10 @@ if __name__ == "__main__":
                 
                 # STEP 7: Standard connective field modeling
                 connective_field = ConnectiveField(center_vertex=None, vertex=None)
-                sigma_values = connective_field.define_size_range(start=1, stop=-1.25, num=50)
-                # sigma_values = connective_field.define_size_range(start=1, stop=-2, num=50)
-                # print(sigma_values)
+                sigma_values = connective_field.define_size_range(start=0.30103, stop=1, num=50)
+                # print(f"Sigma Values: {sigma_values}")
+                print(f"\nStarting Connective Field Modeling for Subject: {subj}, Hemisphere: {hemi}, Task: {task}, Run: {run}, Target Area: {target_name}, Atlas: {atlas}, Denoising: {denoising}")
+                
                 z_scored_target = target_time_course_obj.z_score(method="zscore")
                 z_scored_source = source_time_course_obj.z_score(method="zscore")
                 Parallel(n_jobs=ncores)(delayed(connective_field.iterative_fit_target)(target_vertex=target_vertex, target_time_series=z_scored_target, source_vertices=filtered_idxSource, source_time_series=z_scored_source, distance_matrix=distance_matrix, sigma_values=sigma_values, best_fit_output=best_fit_output, mode = "standard") for target_vertex in idxTarget)
@@ -517,7 +462,7 @@ if __name__ == "__main__":
                     df_bayes = pd.DataFrame(bayes_rows)
                     bayes_csv = os.path.join(output_dir_itertarget, "best_fits_bayesian.csv")
                     df_bayes.to_csv(bayes_csv, index=False)  # single write"""
-        print(f"\nConnective Field Modeling Completed")
+        print("COMPLETE")
 
     # Post Processing
     project_dir = Path(__file__).parent

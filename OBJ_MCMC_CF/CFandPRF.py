@@ -1,5 +1,6 @@
 from imports import *
 
+
 # pRF model 
 class PRFModel:
     def __init__(self, r2, size, ecc, angle):
@@ -17,21 +18,19 @@ def read_benson_label_vertices(label_file):
     df.columns = ["vertex", "x", "y", "z", "value"]
     return df["vertex"].astype(int).to_numpy()
 
-def load_prf(subj, main_path, atlas, denoising, task):
+def load_prf(subj, main_path, atlas, denoising, task, ses):
     task_for_file = "RET" if task == "RestingState" else task
-
-    for ses in ["ses-01", "ses-02", "ses-03"]: # Check multiple possible session folders until we find a matching file
-        # Build the path to the pickle file
-        filepath = os.path.join(main_path, f"pRFM/{subj}/{ses}/{denoising}/model-{atlas}-nelder-mead-GM_desc-prf_params_{task_for_file}.pkl")
-        # If the pickle file exists, load it to extract the parameters
-        if os.path.exists(filepath):
-            with open(filepath, "rb") as f:
-                pkl = pickle.load(f)
-            prf_params = pkl["model"].iterative_search_params # Extract pRF parameters for each vertex row
-            prf_voxels = np.where(pkl["rois_mask"] == 1)[0] # Extract the vertex indices that are inside the ROI mask 
-            return prf_params, prf_voxels
-    # If no file was found in any session print it
-    raise FileNotFoundError(f"No PRF {main_path}/pRFM/{subj}/<ses>/{denoising}/")
+    filepath = os.path.join(main_path,f"pRFM/{subj}/{ses}/{denoising}/model-{atlas}-nelder-mead-GM_desc-prf_params_{task_for_file}_COMPLETE.pkl") # Build the path to the pickle file
+    # If the pickle file exists, load it to extract the parameters
+    if os.path.exists(filepath):
+        with open(filepath, "rb") as f:
+            pkl = pickle.load(f)
+        prf_params = pkl["model"].iterative_search_params # Extract the vertex indices that are inside the ROI mask 
+        prf_voxels = np.where(pkl["rois_mask"] == 1)[0] # Extract the vertex indices that are inside the ROI mask 
+        return prf_params, prf_voxels
+    else:
+        # If no file was found in any session print it
+        raise FileNotFoundError(f"No PRF file found for {subj} in {filepath}")
 
 def filter_prf(prf_params, prf_voxels):
     x = prf_params[:, 0] # Extract x-coordinate of receptive field centers 
@@ -66,9 +65,10 @@ def benson_label_to_dict(label_file, value_name="value"):
     values = df[value_name].to_numpy() # Extract the eccentricity values from the file.
     return dict(zip(vertices, values)) # Could be eccentricity or polar angle
 
-def source_eccentricity(subj, hemi, main_path, atlas, denoising, task, freesurfer_path, label_file=None, benson_fallback_ecc_max=None):
+    
+def source_eccentricity(subj, hemi, main_path, atlas, denoising, task, freesurfer_path, ses, label_file=None, benson_fallback_ecc_max=None):
     # Load the pRF results for this subject, atlas, denoising method, and task to obtain the source vertices filtered by eccentricity
-    prf_params, prf_voxels = load_prf(subj, main_path, atlas, denoising, task) # Load the pRF mapping results
+    prf_params, prf_voxels = load_prf(subj, main_path, atlas, denoising, task, ses) # Load the pRF mapping results
     prf_model = filter_prf(prf_params, prf_voxels) # # Filter the pRF mapping parameters and vertex indices
     vertices, ecc, angle = adjusting_verticesandecc(prf_voxels, prf_model, freesurfer_path, subj, hemi) # Adjust vertices and eccentricities so they match FreeSurfer surface space
     ecc_dict = dict(zip(vertices, ecc)) # Return the dictionary of vertex index and respective eccentricity 
